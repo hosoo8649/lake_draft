@@ -1,0 +1,192 @@
+import { HStack, Text, VStack } from "@seed-design/react";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { ActionButton } from "seed-design/ui/action-button";
+import { Badge } from "seed-design/ui/badge";
+import { Callout } from "seed-design/ui/callout";
+import { SegmentedControl, SegmentedControlItem } from "seed-design/ui/segmented-control";
+import { LIMITS } from "@shared/limits";
+import type { Template } from "@shared/types";
+import { DMEditor } from "../components/dm/DMEditor";
+import { useConfirm, useErrorToast, useToast } from "../components/feedback";
+import { Modal } from "../components/Modal";
+import { EmptyState, Loading, PageHeader, Section } from "../components/ui";
+import { api, useApi } from "../lib/api";
+import { useAppState } from "../lib/appState";
+import { fmtRelative } from "../lib/format";
+
+function features(t: Template): string[] {
+  return [
+    t.dm.followGate.enabled && "팔로우 확인",
+    t.extras.commentReply.enabled && "댓글 답글",
+    t.extras.shareReply && "DM 공유",
+    t.extras.codeReply && "DM 코드",
+    t.dm.main.format === "carousel" && "캐러셀",
+  ].filter(Boolean) as string[];
+}
+
+export function TemplatesPage() {
+  const nav = useNavigate();
+  const { state, links } = useAppState();
+  const { data, reload } = useApi<{ mine: Template[]; builtin: Template[] }>("/templates");
+  const suggestion = useApi<{ sent: number } | null>("/templates/suggestion");
+  const [sort, setSort] = useState<"used" | "recent">("used");
+  const [preview, setPreview] = useState<Template | null>(null);
+  const confirm = useConfirm();
+  const toast = useToast();
+  const onError = useErrorToast();
+
+  const mine = useMemo(() => {
+    const list = [...(data?.mine ?? [])];
+    return sort === "used"
+      ? list.sort((a, b) => b.usedCount - a.usedCount || b.updatedAt - a.updatedAt)
+      : list.sort((a, b) => b.updatedAt - a.updatedAt);
+  }, [data, sort]);
+
+  if (!data || !state) return <Loading />;
+  const totalUsed = data.mine.reduce((s, t) => s + t.usedCount, 0);
+
+  const remove = async (t: Template) => {
+    const ok = await confirm({
+      title: `‘${t.name}’을(를) 삭제할까요?`,
+      description: "템플릿을 지워도 그 템플릿으로 만든 자동화는 그대로 남아요.",
+      confirmLabel: "삭제",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api(`/templates/${t.id}`, { method: "DELETE" });
+      setPreview(null);
+      toast("템플릿을 삭제했어요");
+      void reload();
+    } catch (e) {
+      onError(e);
+    }
+  };
+
+  const Row = ({ t }: { t: Template }) => (
+    <button type="button" className="option-card" onClick={() => setPreview(t)}>
+      <span className="option-card__icon">{t.emoji ?? "💬"}</span>
+      <VStack gap="x1" grow as="span">
+        <HStack gap="x1_5" as="span" wrap>
+          <Text textStyle="t5Bold">{t.name}</Text>
+          {t.recommended && (
+            <Badge size="medium" variant="solid" tone="brand">
+              추천
+            </Badge>
+          )}
+          {features(t).map((f) => (
+            <Badge key={f} size="medium" variant="weak" tone="neutral">
+              {f}
+            </Badge>
+          ))}
+        </HStack>
+        <Text textStyle="t3Regular" color="fg.neutralMuted">
+          {t.builtin
+            ? t.description
+            : `이 템플릿으로 만든 자동화 ${t.usedCount}개 · 버튼 ${t.dm.main.format === "carousel" ? t.dm.main.cards.length + "장 카드" : t.dm.main.buttons.length + "개"} · ${fmtRelative(t.updatedAt)} 수정`}
+        </Text>
+      </VStack>
+    </button>
+  );
+
+  return (
+    <div className="page page--narrow">
+      <PageHeader
+        title="내 템플릿"
+        description="DM 문구·버튼·팔로우 확인·댓글 답글·DM 공유/코드 설정을 한 묶음으로 저장해요. 게시물·키워드·발송 시점은 자동화를 만들 때마다 정해요."
+        actions={
+          <ActionButton variant="brandSolid" disabled={data.mine.length >= LIMITS.templates} onClick={() => nav("/templates/new")}>
+            + 새 템플릿 만들기
+          </ActionButton>
+        }
+      />
+      <VStack gap="x5">
+        <Section
+          title={`저장한 템플릿 ${data.mine.length}개`}
+          description={`이 템플릿들로 만든 자동화 ${totalUsed}개 · 최대 ${LIMITS.templates}개`}
+          actions={
+            data.mine.length > 1 ? (
+              <SegmentedControl aria-label="정렬" value={sort} onValueChange={(v) => setSort(v as "used" | "recent")}>
+                <SegmentedControlItem value="used">자주 쓴 순</SegmentedControlItem>
+                <SegmentedControlItem value="recent">최근 순</SegmentedControlItem>
+              </SegmentedControl>
+            ) : undefined
+          }
+        >
+          {data.mine.length === 0 ? (
+            <VStack gap="x3">
+              <EmptyState emoji="🗂️" title="아직 저장한 템플릿이 없어요" description="자주 보내는 DM을 템플릿으로 저장해 두면 다음부터 고르기만 하면 돼요." />
+              {suggestion.data && suggestion.data.sent > 0 && (
+                <Callout
+                  tone="informative"
+                  title="자주 쓰던 DM으로 첫 템플릿 만들기"
+                  description={`지금까지 가장 많이 보낸 DM(${suggestion.data.sent}건)으로 채워 드려요.`}
+                  linkProps={{ children: "만들기", onClick: () => nav("/templates/new?fromSuggestion=1") }}
+                />
+              )}
+            </VStack>
+          ) : (
+            <VStack gap="x2">
+              {mine.map((t) => (
+                <Row key={t.id} t={t} />
+              ))}
+            </VStack>
+          )}
+        </Section>
+
+        <Section title="기본 템플릿" description="자주 쓰는 상황별로 준비된 템플릿이에요">
+          <VStack gap="x2">
+            {data.builtin.map((t) => (
+              <Row key={t.id} t={t} />
+            ))}
+          </VStack>
+        </Section>
+      </VStack>
+
+      <Modal
+        open={!!preview}
+        onClose={() => setPreview(null)}
+        title={preview?.name ?? ""}
+        description={preview?.description}
+        footer={
+          preview && (
+            <HStack gap="x2" width="full" wrap>
+              {!preview.builtin && (
+                <>
+                  <ActionButton variant="neutralWeak" onClick={() => remove(preview)}>
+                    삭제
+                  </ActionButton>
+                  <ActionButton variant="neutralWeak" onClick={() => nav(`/templates/${preview.id}/edit`)}>
+                    수정
+                  </ActionButton>
+                </>
+              )}
+              {preview.builtin && (
+                <ActionButton variant="neutralWeak" onClick={() => nav(`/templates/new?fromBuiltin=${preview.id}`)}>
+                  복사해서 내 템플릿으로
+                </ActionButton>
+              )}
+              <ActionButton variant="brandSolid" flexGrow onClick={() => nav(`/automations/new?template=${preview.id}`)}>
+                이 템플릿으로 자동화 만들기
+              </ActionButton>
+            </HStack>
+          )
+        }
+      >
+        {preview && (
+          <VStack gap="x3">
+            <div className="chips">
+              {features(preview).map((f) => (
+                <Badge key={f} size="medium" variant="weak" tone="informative">
+                  {f}
+                </Badge>
+              ))}
+            </div>
+            <DMEditor dm={preview.dm} username={state.account.username} links={links} gateSwitch="hidden" />
+          </VStack>
+        )}
+      </Modal>
+    </div>
+  );
+}
