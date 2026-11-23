@@ -16,6 +16,7 @@ export default defineConfig({
       "/r/": { target: API, changeOrigin: true },
       "/auth": { target: API, changeOrigin: true },
       "/webhooks": { target: API, changeOrigin: true },
+      "/uploads": { target: API, changeOrigin: true },
     },
   },
   build: { outDir: "dist", chunkSizeWarningLimit: 1500 },

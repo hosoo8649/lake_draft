@@ -12,7 +12,7 @@ const { app, start } = createApp(store);
 const dist = path.resolve("dist");
 if (fs.existsSync(path.join(dist, "index.html"))) {
   app.use(express.static(dist));
-  app.get(/^\/(?!api|r\/|webhooks|auth).*/, (_req, res) => res.sendFile(path.join(dist, "index.html")));
+  app.get(/^\/(?!api|r\/|webhooks|auth|uploads).*/, (_req, res) => res.sendFile(path.join(dist, "index.html")));
 }
 
 const stop = start();

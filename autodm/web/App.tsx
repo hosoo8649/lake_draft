@@ -48,6 +48,9 @@ function MobileShell({ children }: { children: React.ReactNode }) {
     { label: "링크", path: "/links", icon: <IconPaperclipLine />, match: (p: string) => p === "/links" },
     { label: "설정", path: "/settings", icon: <IconGearLine />, match: (p: string) => ["/settings", "/connect", "/help", "/simulator"].includes(p) },
   ];
+  // 자동화·템플릿 만들기 같은 단계형 화면은 앱처럼 하단 탭 없이 전체 화면으로 보여요
+  const flow = /^\/(automations\/(new|[^/]+\/edit)|templates\/(new|[^/]+\/edit))/.test(pathname);
+  if (flow) return <>{children}</>;
   return (
     <div style={{ paddingBottom: 72 }}>
       {children}
@@ -121,7 +124,7 @@ function Shell({ children }: { children: React.ReactNode }) {
               label="도구"
               items={[
                 ...(acc?.mode === "demo" ? [item("시뮬레이터", "/simulator", <IconFlaskLine />)] : []),
-                item("DM이 안 가요", "/help", <IconQuestionmarkCircleLine />),
+                item("도움말", "/help", <IconQuestionmarkCircleLine />, (p) => p.startsWith("/help")),
               ]}
             />
           </SideNavigationContent>

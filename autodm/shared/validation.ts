@@ -44,6 +44,11 @@ export function isValidUrl(url: string): boolean {
   }
 }
 
+/** 카드 이미지는 올린 파일(/uploads/...)도 쓸 수 있어요 */
+export function isValidImageUrl(url: string): boolean {
+  return /^\/uploads\/[\w.-]+$/.test(url.trim()) || isValidUrl(url);
+}
+
 export function normalizeUrl(url: string): string {
   const v = url.trim();
   if (!v) return v;
@@ -70,7 +75,7 @@ export function validateMessage(m: DMMessage, rules: MessageRules): string[] {
       if (!c.title.trim()) errs.push(`${p}${i + 1}번 카드 제목을 넣어 주세요`);
       if ([...c.title].length > LIMITS.cardTitle) errs.push(`${p}${i + 1}번 카드 제목은 ${LIMITS.cardTitle}자까지예요`);
       if ([...c.subtitle].length > LIMITS.cardSubtitle) errs.push(`${p}${i + 1}번 카드 설명은 ${LIMITS.cardSubtitle}자까지예요`);
-      if (c.imageUrl && !isValidUrl(c.imageUrl)) errs.push(`${p}${i + 1}번 카드 이미지 주소가 올바르지 않아요`);
+      if (c.imageUrl && !isValidImageUrl(c.imageUrl)) errs.push(`${p}${i + 1}번 카드 이미지 주소가 올바르지 않아요`);
       if (c.buttons.length > LIMITS.buttonsPerMessage) errs.push(`${p}${i + 1}번 카드 버튼은 ${LIMITS.buttonsPerMessage}개까지예요`);
       c.buttons.forEach((b) => {
         if (!b.title.trim()) errs.push(`${p}${i + 1}번 카드에 이름 없는 버튼이 있어요`);

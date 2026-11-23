@@ -107,7 +107,8 @@ export function ConnectPage() {
     nav("/connect");
   };
 
-  const demoSection = acc?.mode !== "live" && (
+  // 데모로 연결돼 있으면 위 ‘연동된 계정’에 다시 시작 버튼이 있어요
+  const demoSection = !acc?.connected && (
           <Section title="데모로 체험하기" description="Meta 앱 없이 PC에서 바로 모든 자동 DM 기능을 시험해 봐요">
             <VStack gap="x3">
               <Text textStyle="t4Regular" color="fg.neutralMuted">
@@ -152,7 +153,7 @@ export function ConnectPage() {
                   {acc.connectedAt ? ` · ${fmtDateTime(acc.connectedAt)} 연동` : ""}
                 </Text>
               </VStack>
-              <Badge size="large" variant="weak" tone={acc.needsReauth ? "critical" : acc.mode === "demo" ? "warning" : "positive"}>
+              <Badge size="large" variant="weak" tone={acc.needsReauth ? "critical" : acc.mode === "demo" ? "warning" : "positive"} style={{ flexShrink: 0 }}>
                 {acc.needsReauth ? "재연동 필요" : acc.mode === "demo" ? "데모" : "정상"}
               </Badge>
             </HStack>

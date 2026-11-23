@@ -6,13 +6,17 @@ export const FOLLOW_CHECK_PREFIX = "FC|";
 export interface LinkBuilder {
   /** 버튼 링크 → 클릭 추적 링크 */
   (deliveryId: string, button: DMButton): string;
+  /** 올린 이미지(/uploads/..) → 바깥에서 볼 수 있는 주소 */
+  asset: (url: string) => string;
 }
 
-export function makeLinkBuilder(baseUrl: string, track: boolean): LinkBuilder {
-  return (deliveryId, button) => {
+export function makeLinkBuilder(baseUrl: string, track: boolean, assetBase = baseUrl): LinkBuilder {
+  const fn = ((deliveryId: string, button: DMButton) => {
     if (!track) return button.url;
     return `${baseUrl}/r/${encodeURIComponent(deliveryId)}/${encodeURIComponent(button.id)}`;
-  };
+  }) as LinkBuilder;
+  fn.asset = (url: string) => (url.startsWith("/") ? `${assetBase}${url}` : url);
+  return fn;
 }
 
 function urlButtons(buttons: DMButton[], deliveryId: string, link: LinkBuilder): OutgoingButton[] {
@@ -33,7 +37,7 @@ export function buildMessage(
       cards: m.cards.map((c) => ({
         title: c.title,
         subtitle: c.subtitle,
-        imageUrl: c.imageUrl,
+        imageUrl: c.imageUrl ? link.asset(c.imageUrl) : "",
         buttons: urlButtons(c.buttons, deliveryId, link),
       })),
     };

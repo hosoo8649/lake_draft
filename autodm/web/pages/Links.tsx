@@ -62,8 +62,8 @@ export function LinksPage() {
         ) : (
           <VStack gap="x2">
             {data.map((l) => (
-              <HStack key={l.id} gap="x3" className="card" align="center" style={{ padding: "12px 16px" }}>
-                <VStack gap="x0_5" grow style={{ minWidth: 0 }}>
+              <HStack key={l.id} gap="x3" className="card" align="center" wrap style={{ padding: "12px 16px" }}>
+                <VStack gap="x0_5" grow style={{ minWidth: 0, flexBasis: 220 }}>
                   <Text textStyle="t5Bold">{l.title}</Text>
                   <Text textStyle="t3Regular" color="fg.neutralSubtle" maxLines={1}>
                     {l.url}

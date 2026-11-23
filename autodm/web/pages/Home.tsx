@@ -1,7 +1,7 @@
-import { IconDot3VerticalLine, IconPlusLine } from "@karrotmarket/react-monochrome-icon";
+import { IconChevronRightLine, IconDot3VerticalLine, IconPlusLine } from "@karrotmarket/react-monochrome-icon";
 import { HStack, Icon, PrefixIcon, Text, VStack } from "@seed-design/react";
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ActionButton } from "seed-design/ui/action-button";
 import { Badge } from "seed-design/ui/badge";
 import { MenuContent, MenuItem, MenuRoot, MenuTrigger } from "seed-design/ui/menu";
@@ -10,6 +10,7 @@ import { SegmentedControl, SegmentedControlItem } from "seed-design/ui/segmented
 import { Switch } from "seed-design/ui/switch";
 import type { AutomationView, HomeSummary } from "@shared/types";
 import { useConfirm, useErrorToast, useToast } from "../components/feedback";
+import { TOUR_KEY, Tour } from "../components/Tour";
 import { TrendChart } from "../components/TrendChart";
 import { EmptyState, Loading, PageHeader, PostThumb, Section, StatTile, StatusBadge } from "../components/ui";
 import { api, useApi } from "../lib/api";
@@ -136,6 +137,16 @@ export function HomePage() {
   const [sort, setSort] = useState<"post" | "recent">("post");
   const onError = useErrorToast();
   const toast = useToast();
+  const [params, setParams] = useSearchParams();
+  const [tourOpen, setTourOpen] = useState(false);
+  useEffect(() => {
+    // 처음 들어오면 둘러보기를 열고, 설정 › 도움말에서 다시 열 수 있어요
+    if (params.get("tour") === "1" || !localStorage.getItem(TOUR_KEY)) setTourOpen(true);
+    if (params.get("tour")) {
+      params.delete("tour");
+      setParams(params, { replace: true });
+    }
+  }, []);
 
   const groups = useMemo(() => {
     if (!data) return [];
@@ -176,9 +187,11 @@ export function HomePage() {
         description={`@${acc.username}의 자동 DM 성과와 게시물별 자동화를 한눈에 봐요`}
         actions={
           <>
-            <ActionButton variant="neutralWeak" onClick={() => nav("/templates")}>
-              내 템플릿 {data.templateCount > 0 ? data.templateCount : ""}
-            </ActionButton>
+            {(state.settings.dmPaused || state.settings.replyPaused) && (
+              <Badge size="large" variant="solid" tone="warning">
+                {state.settings.dmPaused ? "DM 발송 일시 중지" : "댓글 답글 일시 중지"}
+              </Badge>
+            )}
             <ActionButton variant="brandSolid" onClick={() => nav("/automations/new")}>
               <PrefixIcon svg={<IconPlusLine />} />
               자동화 추가
@@ -218,6 +231,25 @@ export function HomePage() {
           <StatTile label="읽음" value={fmtNumber(s.totals.read)} hint="DM을 연 사람 수" />
           <StatTile label="클릭" value={fmtNumber(s.totals.clicks)} hint="버튼·링크 클릭 횟수" />
           <StatTile label="클릭률" value={`${s.totals.ctr}%`} hint={`운영 중인 자동화 ${s.totals.running}개`} />
+        </div>
+
+        <div className="grid-3 grid-3--stack">
+          {[
+            { emoji: "🗂️", title: "내 템플릿", desc: data.templateCount ? `${data.templateCount}개 저장됨` : "자주 쓰는 DM 저장하기", to: "/templates" },
+            { emoji: "🎉", title: "이벤트 추첨", desc: "댓글에서 당첨자 뽑기", to: "/draws" },
+            { emoji: "🧭", title: "DM이 안 가요?", desc: "원인과 해결 방법", to: "/help" },
+          ].map((c) => (
+            <button key={c.to} type="button" className="option-card" style={{ alignItems: "center" }} onClick={() => nav(c.to)}>
+              <span className="option-card__icon">{c.emoji}</span>
+              <VStack gap="x0_5" as="span" grow>
+                <Text textStyle="t5Bold">{c.title}</Text>
+                <Text textStyle="t3Regular" color="fg.neutralMuted">
+                  {c.desc}
+                </Text>
+              </VStack>
+              <Icon svg={<IconChevronRightLine />} color="fg.neutralSubtle" />
+            </button>
+          ))}
         </div>
 
         <Section title="최근 7일 추이">
@@ -276,6 +308,7 @@ export function HomePage() {
           )}
         </Section>
       </VStack>
+      <Tour open={tourOpen} onClose={() => setTourOpen(false)} />
     </div>
   );
 }

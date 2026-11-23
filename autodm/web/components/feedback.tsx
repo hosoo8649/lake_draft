@@ -21,7 +21,7 @@ function ToastBridge({ children }: { children: ReactNode }) {
   const adapter = useSnackbarAdapter();
   const toast = useCallback<ToastFn>(
     (message, variant = "default") => {
-      adapter.create({ timeout: 3000, render: () => <Snackbar variant={variant} message={message} /> });
+      adapter.create({ timeout: 3000, strategy: "immediate", render: () => <Snackbar variant={variant} message={message} /> });
     },
     [adapter],
   );

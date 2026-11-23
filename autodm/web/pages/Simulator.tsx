@@ -8,7 +8,8 @@ import { SelectContent, SelectGroup, SelectItem, SelectRoot, SelectTrigger } fro
 import { Switch } from "seed-design/ui/switch";
 import type { Comment, DemoInboxMessage, DemoState } from "@shared/types";
 import type { PostWithMeta } from "../components/automation/Pickers";
-import { Avatar, FanBubble, Phone } from "../components/dm/Phone";
+import { BubbleAvatar, FanBubbleRow } from "../components/dm/Bubble";
+import { Avatar, Phone } from "../components/dm/Phone";
 import { useErrorToast, useToast } from "../components/feedback";
 import { TextInput } from "../components/fields";
 import { Loading, PageHeader, PostThumb, Section } from "../components/ui";
@@ -22,26 +23,34 @@ const SKIP_REASON: Record<string, string> = {
   paused: "설정에서 DM 발송이 일시 중지돼 있어요",
   "restricted-post": "제한된 게시물이라 댓글 이벤트를 받지 못했어요 (DM 공유·코드는 동작해요)",
   duplicate: "이미 처리한 댓글이에요",
+  "already-sent": "이 자동화로 이미 DM을 받은 사람이라 다시 보내지 않았어요 (같은 사람에게는 한 번만)",
+  "reply-comment": "답글(대댓글)에는 반응하지 않아요",
 };
 
 function BusinessMessage(props: { m: DemoInboxMessage; username?: string; onButton: (b: NonNullable<DemoInboxMessage["buttons"]>[number]) => void }) {
   const { m } = props;
   if (m.cards) {
     return (
-      <div className="dm-row" style={{ alignItems: "flex-start" }}>
-        <Avatar name={props.username} />
-        <div className="dm-carousel">
+      <div className="msg-row">
+        <BubbleAvatar name={props.username} />
+        <div className="cards-row">
           {m.cards.map((c, i) => (
-            <div key={i} className="dm-card">
-              <div className="dm-card__img" style={c.imageUrl ? { backgroundImage: `url("${c.imageUrl}")` } : undefined}>
+            <div key={i} className="c-card">
+              <div className="c-card__img" style={c.imageUrl ? { backgroundImage: `url("${c.imageUrl}")` } : undefined}>
                 {!c.imageUrl && "이미지 없음"}
               </div>
-              <div className="dm-card__body">
-                <div className="dm-card__title">{c.title}</div>
-                {c.subtitle && <div className="dm-card__sub">{c.subtitle}</div>}
+              <div className="c-card__body">
+                <Text as="p" textStyle="t4Bold">
+                  {c.title}
+                </Text>
+                {c.subtitle && (
+                  <Text as="p" textStyle="t2Regular" color="fg.neutralMuted">
+                    {c.subtitle}
+                  </Text>
+                )}
               </div>
               {c.buttons.map((b, j) => (
-                <button key={j} type="button" className="dm-btn" onClick={() => props.onButton(b)}>
+                <button key={j} type="button" className="pill pill--editable" onClick={() => props.onButton(b)}>
                   {b.title}
                 </button>
               ))}
@@ -52,14 +61,14 @@ function BusinessMessage(props: { m: DemoInboxMessage; username?: string; onButt
     );
   }
   return (
-    <div className="dm-row">
-      <Avatar name={props.username} />
-      <div className="dm-msg">
-        <div className="dm-text">{m.text}</div>
+    <div className="msg-row">
+      <BubbleAvatar name={props.username} />
+      <div className="bubble">
+        <div className="bubble__text">{m.text}</div>
         {m.buttons?.map((b, j) => (
-          <button key={j} type="button" className="dm-btn" onClick={() => props.onButton(b)}>
+          <button key={j} type="button" className="pill pill--editable" onClick={() => props.onButton(b)}>
             {b.title}
-            <small>{b.type === "postback" ? "팔로우 확인 버튼" : "링크 버튼 · 클릭 수에 기록돼요"}</small>
+            <small style={{ color: "var(--seed-color-fg-neutral-subtle)" }}>{b.type === "postback" ? "팔로우 확인 버튼" : "링크 · 누르면 클릭 수에 기록돼요"}</small>
           </button>
         ))}
       </div>
@@ -150,11 +159,11 @@ export function SimulatorPage() {
           </ActionButton>
         }
       />
-      <div className="split" style={{ gridTemplateColumns: "minmax(0,1fr) 400px" }}>
+      <div className="split split--sim">
         <VStack gap="x4">
           <Section title="1. 게시물">
             <VStack gap="x3">
-              <SelectRoot value={postId ? [postId] : []} onValueChange={(v) => setPostId(v[0])}>
+              <SelectRoot label="게시물" value={postId ? [postId] : []} onValueChange={(v) => setPostId(v[0])}>
                 <SelectTrigger aria-label="게시물" placeholder="게시물" />
                 <SelectContent>
                   <SelectGroup>
@@ -289,7 +298,7 @@ export function SimulatorPage() {
               </HStack>
               <HStack gap="x2" align="flex-end">
                 <div style={{ width: 200 }}>
-                  <TextInput label="DM 보내기 (코드 등)" placeholder="예: 1234" value={code} onChange={setCode} />
+                  <TextInput label="DM 보내기 (코드 등)" placeholder="예: AB7K" value={code} onChange={setCode} />
                 </div>
                 <ActionButton
                   variant="neutralWeak"
@@ -347,7 +356,7 @@ export function SimulatorPage() {
                   {inbox.length === 0 && <div className="dm-system">아직 받은 DM이 없어요</div>}
                   {inbox.map((m) =>
                     m.from === "fan" ? (
-                      <FanBubble key={m.id}>{m.sharedPostId ? "✈️ 게시물을 공유했어요" : m.text}</FanBubble>
+                      <FanBubbleRow key={m.id}>{m.sharedPostId ? "✈️ 게시물을 공유했어요" : m.text}</FanBubbleRow>
                     ) : (
                       <VStack key={m.id} gap="x0_5">
                         <BusinessMessage m={m} username={state.account.username} onButton={onButton} />

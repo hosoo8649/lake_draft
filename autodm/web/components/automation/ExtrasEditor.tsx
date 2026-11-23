@@ -1,31 +1,203 @@
-import { IconTrashcanLine } from "@karrotmarket/react-monochrome-icon";
-import { HStack, Text, VStack } from "@seed-design/react";
-import { useState } from "react";
+import {
+  IconChevronRightLine,
+  IconDot3HorizontalChatbubbleLeftLine,
+  IconKeyholeShieldLine,
+  IconPaperplaneLine,
+  IconPerson2Line,
+  IconTrashcanLine,
+} from "@karrotmarket/react-monochrome-icon";
+import { HStack, Icon, Text, VStack } from "@seed-design/react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ActionButton } from "seed-design/ui/action-button";
+import { Badge } from "seed-design/ui/badge";
 import { Chip } from "seed-design/ui/chip";
-import { SegmentedControl, SegmentedControlItem } from "seed-design/ui/segmented-control";
 import { Switch } from "seed-design/ui/switch";
 import { LIMITS } from "@shared/limits";
 import { FRIENDLY_REPLIES, POLITE_REPLIES } from "@shared/presets";
-import type { Extras, SendMode } from "@shared/types";
+import type { CommentReplySetting, Extras, ReplySet, SendMode } from "@shared/types";
+import { api, useApi } from "../../lib/api";
+import { TONE_LABEL, copyText, fanGuideText } from "../../lib/format";
+import { useErrorToast, useToast } from "../feedback";
 import { TextInput } from "../fields";
+import { Modal } from "../Modal";
 import { IconBtn } from "../ui";
 
-function ToggleRow(props: { title: string; description: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
+export function FeatureCard(props: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  badge?: string;
+  tags?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange?: (v: boolean) => void;
+  children?: ReactNode;
+}) {
   return (
-    <HStack justify="space-between" align="flex-start" gap="x4">
-      <VStack gap="x0_5">
-        <Text textStyle="t5Bold" color={props.disabled ? "fg.disabled" : "fg.neutral"}>
-          {props.title}
-        </Text>
-        <Text textStyle="t3Regular" color="fg.neutralMuted">
-          {props.description}
-        </Text>
+    <div className="feature-card">
+      <div className="feature-card__icon">{props.icon}</div>
+      <VStack gap="x3" grow style={{ minWidth: 0 }}>
+        <HStack justify="space-between" align="flex-start" gap="x3">
+          <VStack gap="x0_5">
+            <HStack gap="x1_5" align="center">
+              <Text textStyle="t5Bold" color={props.disabled ? "fg.disabled" : "fg.neutral"}>
+                {props.title}
+              </Text>
+              {props.badge && (
+                <Badge size="medium" variant="outline" tone="brand">
+                  {props.badge}
+                </Badge>
+              )}
+            </HStack>
+            <Text textStyle="t3Regular" color="fg.neutralMuted">
+              {props.description}
+            </Text>
+            {props.tags && (
+              <Text textStyle="t2Regular" color="fg.neutralSubtle">
+                {props.tags}
+              </Text>
+            )}
+          </VStack>
+          <Switch checked={props.checked} disabled={props.disabled || !props.onChange} onCheckedChange={props.onChange} aria-label={props.title} />
+        </HStack>
+        {props.children}
       </VStack>
-      <Switch checked={props.checked} disabled={props.disabled} onCheckedChange={props.onChange} aria-label={props.title} />
-    </HStack>
+    </div>
   );
 }
+
+/* ───────────── 말투 고르기 / 답글 고르기 ───────────── */
+
+function ReplyPickerModal(props: { open: boolean; value: CommentReplySetting; onClose: () => void; onSave: (v: CommentReplySetting) => void }) {
+  const [v, setV] = useState(props.value);
+  const [draft, setDraft] = useState("");
+  const [saveName, setSaveName] = useState("");
+  const sets = useApi<ReplySet[]>(props.open ? "/reply-sets" : null);
+  const toast = useToast();
+  const onError = useErrorToast();
+  useEffect(() => {
+    if (props.open) {
+      setV(props.value);
+      setDraft("");
+      setSaveName("");
+    }
+  }, [props.open]);
+
+  const custom = v.custom;
+  const setCustom = (c: string[]) => setV({ ...v, custom: c.slice(0, LIMITS.customRepliesMax) });
+  const add = () => {
+    const t = draft.trim();
+    if (!t) return;
+    setCustom([...custom, t]);
+    setDraft("");
+  };
+  const sample = (tone: "polite" | "friendly") => (tone === "polite" ? POLITE_REPLIES[0] : FRIENDLY_REPLIES[0]);
+  const customOk = custom.length >= LIMITS.customRepliesMin;
+
+  return (
+    <Modal
+      open={props.open}
+      onClose={props.onClose}
+      title="답글 말투"
+      description="DM을 보낸 댓글에 공개 답글로 달려요. 같은 문구가 반복되면 인스타그램이 반복 활동으로 볼 수 있어 무작위로 돌려 써요."
+      primary={{ label: "완료", onClick: () => (props.onSave(v), props.onClose()), disabled: v.tone === "custom" && !customOk }}
+    >
+      <VStack gap="x4">
+        {(["polite", "friendly", "custom"] as const).map((t) => (
+          <button key={t} type="button" className="option-card" data-selected={v.tone === t} onClick={() => setV({ ...v, tone: t })}>
+            <VStack gap="x0_5" as="span" grow>
+              <Text textStyle="t5Bold">{TONE_LABEL[t]}</Text>
+              <Text textStyle="t3Regular" color="fg.neutralMuted">
+                {t === "custom" ? "답글을 직접 쓰거나 저장해 둔 답글 모음을 불러와요" : `예) ${sample(t)}`}
+              </Text>
+            </VStack>
+            <span className="option-card__radio" aria-hidden />
+          </button>
+        ))}
+
+        {v.tone === "custom" && (
+          <VStack gap="x3">
+            <HStack justify="space-between">
+              <Text textStyle="t4Bold">답글 고르기</Text>
+              <Text textStyle="t2Regular" color={customOk ? "fg.neutralSubtle" : "fg.critical"}>
+                {custom.length}/{LIMITS.customRepliesMax} · {LIMITS.customRepliesMin}개 이상
+              </Text>
+            </HStack>
+            {(sets.data?.length ?? 0) > 0 && (
+              <VStack gap="x1_5">
+                <Text textStyle="t3Medium" color="fg.neutralMuted">
+                  저장한 답글 모음 불러오기
+                </Text>
+                <div className="chips">
+                  {sets.data!.map((s) => (
+                    <HStack key={s.id} gap="x0_5" align="center">
+                      <Chip.Button size="small" variant="outlineStrong" onClick={() => (setCustom([...s.replies]), toast(`‘${s.name}’ 답글 ${s.replies.length}개를 불러왔어요`))}>
+                        <Chip.Label>
+                          {s.name} · {s.replies.length}
+                        </Chip.Label>
+                      </Chip.Button>
+                      <IconBtn
+                        label={`${s.name} 삭제`}
+                        icon={<IconTrashcanLine />}
+                        onClick={async () => {
+                          await api(`/reply-sets/${s.id}`, { method: "DELETE" });
+                          void sets.reload();
+                        }}
+                      />
+                    </HStack>
+                  ))}
+                </div>
+              </VStack>
+            )}
+            {custom.map((c, i) => (
+              <HStack key={`${i}-${c}`} gap="x2" className="card" style={{ padding: "8px 12px" }}>
+                <Text textStyle="t4Regular" style={{ flex: 1 }}>
+                  {c}
+                </Text>
+                <IconBtn label="답글 삭제" icon={<IconTrashcanLine />} onClick={() => setCustom(custom.filter((_, j) => j !== i))} />
+              </HStack>
+            ))}
+            {custom.length < LIMITS.customRepliesMax && (
+              <HStack gap="x2" align="flex-start">
+                <div style={{ flex: 1 }}>
+                  <TextInput ariaLabel="새 답글" placeholder="예: DM 확인해 주세요 💌" value={draft} onChange={setDraft} max={LIMITS.replyText} onEnter={add} />
+                </div>
+                <ActionButton variant="neutralWeak" disabled={!draft.trim()} onClick={add}>
+                  추가
+                </ActionButton>
+              </HStack>
+            )}
+            {customOk && (
+              <HStack gap="x2" align="flex-start">
+                <div style={{ flex: 1 }}>
+                  <TextInput ariaLabel="답글 모음 이름" placeholder="이 답글들을 모음으로 저장 (이름)" value={saveName} onChange={setSaveName} max={LIMITS.replySetName} />
+                </div>
+                <ActionButton
+                  variant="neutralWeak"
+                  disabled={!saveName.trim()}
+                  onClick={async () => {
+                    try {
+                      await api("/reply-sets", { body: { name: saveName, replies: custom } });
+                      setSaveName("");
+                      toast("답글 모음을 저장했어요. 다음부터 불러올 수 있어요", "positive");
+                      void sets.reload();
+                    } catch (e) {
+                      onError(e);
+                    }
+                  }}
+                >
+                  모음 저장
+                </ActionButton>
+              </HStack>
+            )}
+          </VStack>
+        )}
+      </VStack>
+    </Modal>
+  );
+}
+
+/* ───────────── 추가 기능도 켤까요? (가이드 2-6) ───────────── */
 
 export function ExtrasEditor(props: {
   extras: Extras;
@@ -33,125 +205,125 @@ export function ExtrasEditor(props: {
   /** 정해진 발송 방식 (예약·일괄이면 댓글 답글 불가) */
   sendMode?: SendMode;
   code?: string;
+  username?: string;
+  /** 템플릿 만들기 1단계처럼 설명 태그를 보여 줄 때 */
+  showTags?: boolean;
+  /** 팔로워/비팔로워 다른 DM 스위치를 함께 보여 줄 때 (템플릿 만들기) */
+  gate?: { checked: boolean; onChange: (v: boolean) => void };
 }) {
   const e = props.extras;
   const r = e.commentReply;
-  const set = (patch: Partial<Extras>) => props.onChange?.({ ...e, ...patch });
-  const setReply = (patch: Partial<Extras["commentReply"]>) => set({ commentReply: { ...r, ...patch } });
-  const replyBlocked = props.sendMode && props.sendMode !== "immediate";
-  const [draft, setDraft] = useState("");
   const ro = !props.onChange;
+  const set = (patch: Partial<Extras>) => props.onChange?.({ ...e, ...patch });
+  const setReply = (patch: Partial<CommentReplySetting>) => set({ commentReply: { ...r, ...patch } });
+  const replyBlocked = props.sendMode && props.sendMode !== "immediate";
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const toast = useToast();
 
-  const preview = r.tone === "polite" ? POLITE_REPLIES.slice(0, r.count) : r.tone === "friendly" ? FRIENDLY_REPLIES.slice(0, r.count) : [];
+  const toneSample =
+    r.tone === "custom" ? (r.custom.length ? `${r.custom[0]}${r.custom.length > 1 ? ` 외 ${r.custom.length - 1}개` : ""}` : "답글을 넣어 주세요") : r.tone === "polite" ? POLITE_REPLIES[0] : FRIENDLY_REPLIES[0];
+  const guide = fanGuideText(props.username, props.code ?? "····", e.shareReply, e.codeReply);
 
   return (
-    <VStack gap="x6">
-      <VStack gap="x4">
-        <ToggleRow
-          title="댓글에 답글 달기"
-          description={
-            replyBlocked
-              ? "예약·일괄 발송에서는 댓글 답글을 쓸 수 없어요 (짧은 시간에 답글이 몰리면 인스타그램이 제한할 수 있어요)"
-              : "DM을 보낸 댓글에 공개 답글도 달아요. 팬이 DM을 확인하도록 알려 주고, 게시물 반응도 살아나요"
-          }
-          checked={r.enabled && !replyBlocked}
-          disabled={ro || !!replyBlocked}
-          onChange={(v) => setReply({ enabled: v })}
+    <VStack gap="x3">
+      {props.gate && (
+        <FeatureCard
+          icon={<Icon svg={<IconPerson2Line />} />}
+          title="팔로워/비팔로워에게 다른 DM 보내기"
+          description="팔로우 여부에 따라 서로 다른 DM을 보내요"
+          tags={props.showTags ? "#팔로우유도 #팔로워전용혜택" : undefined}
+          checked={props.gate.checked}
+          onChange={props.gate.onChange}
         />
+      )}
+      <FeatureCard
+        icon={<Icon svg={<IconDot3HorizontalChatbubbleLeftLine />} />}
+        title="댓글에 답글 달기"
+        description={
+          replyBlocked
+            ? "예약·일괄 발송에서는 댓글 답글을 쓸 수 없어요 (짧은 시간에 답글이 몰리면 인스타그램이 제한할 수 있어요)"
+            : "DM을 보내고 댓글에도 답글을 달아요"
+        }
+        tags={props.showTags ? "#DM확인안내 #댓글반응늘리기" : undefined}
+        checked={r.enabled && !replyBlocked}
+        disabled={!!replyBlocked}
+        onChange={ro ? undefined : (v) => setReply({ enabled: v })}
+      >
         {r.enabled && !replyBlocked && (
-          <VStack gap="x4" pl="x4" style={{ borderLeft: "2px solid var(--seed-color-stroke-neutral-subtle)" }}>
-            <VStack gap="x2">
-              <Text textStyle="t4Bold">말투</Text>
-              <SegmentedControl aria-label="말투" value={r.tone} onValueChange={(v) => setReply({ tone: v as typeof r.tone })}>
-                <SegmentedControlItem value="polite">정중하게</SegmentedControlItem>
-                <SegmentedControlItem value="friendly">친근하게</SegmentedControlItem>
-                <SegmentedControlItem value="custom">내 답글</SegmentedControlItem>
-              </SegmentedControl>
-            </VStack>
-            {r.tone !== "custom" ? (
-              <VStack gap="x2">
-                <Text textStyle="t4Bold">답글 개수</Text>
-                <Chip.RadioRoot value={String(r.count)} onValueChange={(v: string) => setReply({ count: Number(v) as 10 | 20 | 30 })} aria-label="답글 개수">
-                  <HStack gap="x2">
-                    {[10, 20, 30].map((n) => (
-                      <Chip.RadioItem key={n} value={String(n)} size="small" variant="outlineStrong">
-                        <Chip.Label>{n}개</Chip.Label>
-                      </Chip.RadioItem>
-                    ))}
-                  </HStack>
-                </Chip.RadioRoot>
-                <Text textStyle="t2Regular" color="fg.neutralSubtle">
-                  {r.count}개의 답글 중에서 무작위로 골라 달아요. 예: “{preview[0]}”, “{preview[1]}”
-                </Text>
-              </VStack>
-            ) : (
-              <VStack gap="x2">
-                <HStack justify="space-between">
-                  <Text textStyle="t4Bold">내 답글</Text>
-                  <Text textStyle="t2Regular" color={r.custom.length < LIMITS.customRepliesMin ? "fg.critical" : "fg.neutralSubtle"}>
-                    {r.custom.length}/{LIMITS.customRepliesMax} · {LIMITS.customRepliesMin}개 이상
-                  </Text>
+          <VStack gap="x2">
+            {r.tone !== "custom" && (
+              <Chip.RadioRoot value={String(r.count)} onValueChange={(v: string) => setReply({ count: Number(v) as 10 | 20 | 30 })} aria-label="답글 개수">
+                <HStack gap="x2">
+                  {[10, 20, 30].map((n) => (
+                    <Chip.RadioItem key={n} value={String(n)} size="medium" variant="outlineStrong" disabled={ro}>
+                      <Chip.Label>{n}개</Chip.Label>
+                    </Chip.RadioItem>
+                  ))}
                 </HStack>
-                {r.custom.map((c, i) => (
-                  <HStack key={i} gap="x2" className="card" style={{ padding: "8px 12px" }}>
-                    <Text textStyle="t4Regular" style={{ flex: 1 }}>
-                      {c}
-                    </Text>
-                    <IconBtn label="답글 삭제" icon={<IconTrashcanLine />} onClick={() => setReply({ custom: r.custom.filter((_, j) => j !== i) })} />
-                  </HStack>
-                ))}
-                {r.custom.length < LIMITS.customRepliesMax && (
-                  <HStack gap="x2" align="flex-start">
-                    <div style={{ flex: 1 }}>
-                      <TextInput
-                        ariaLabel="새 답글"
-                        placeholder="예: DM 확인해 주세요 💌"
-                        value={draft}
-                        onChange={setDraft}
-                        max={LIMITS.replyText}
-                        onEnter={() => {
-                          if (draft.trim()) setReply({ custom: [...r.custom, draft.trim()] });
-                          setDraft("");
-                        }}
-                      />
-                    </div>
-                    <ActionButton
-                      variant="neutralWeak"
-                      disabled={!draft.trim()}
-                      onClick={() => {
-                        setReply({ custom: [...r.custom, draft.trim()] });
-                        setDraft("");
-                      }}
-                    >
-                      추가
-                    </ActionButton>
-                  </HStack>
-                )}
-                <Text textStyle="t2Regular" color="fg.neutralSubtle">
-                  같은 문구가 반복되면 인스타그램이 반복 활동으로 볼 수 있어요. 최대한 다양하게 써 주세요.
-                </Text>
-              </VStack>
+              </Chip.RadioRoot>
+            )}
+            <button type="button" className="tone-row" onClick={() => !ro && setPickerOpen(true)} disabled={ro}>
+              <Text textStyle="t3Bold" color="fg.neutralMuted" style={{ flexShrink: 0 }}>
+                {TONE_LABEL[r.tone]}
+              </Text>
+              <Text textStyle="t4Regular" maxLines={1} style={{ flex: 1 }}>
+                {toneSample}
+              </Text>
+              <Icon svg={<IconChevronRightLine />} />
+            </button>
+            {r.tone === "custom" && r.custom.length < LIMITS.customRepliesMin && (
+              <Text textStyle="t2Regular" color="fg.critical">
+                내 답글은 {LIMITS.customRepliesMin}개 이상 넣어 주세요
+              </Text>
             )}
           </VStack>
         )}
-      </VStack>
-
-      <ToggleRow
+      </FeatureCard>
+      <FeatureCard
+        icon={<Icon svg={<IconPaperplaneLine />} />}
         title="DM 공유에도 답하기"
-        description="팬이 이 게시물을 ✈️ 공유로 내 계정에 DM으로 보내면 같은 DM을 보내요. 댓글을 남기지 않는 팬에게도 닿을 수 있어요"
+        badge="NEW"
+        description="이 게시물을 내 계정에 DM으로 공유한 팬에게 자동 DM을 보내요. 댓글을 남기지 않는 팬에게도 닿아요"
         checked={e.shareReply}
-        disabled={ro}
-        onChange={(v) => set({ shareReply: v })}
+        onChange={ro ? undefined : (v) => set({ shareReply: v })}
       />
-      <ToggleRow
+      <FeatureCard
+        icon={<Icon svg={<IconKeyholeShieldLine />} />}
         title="DM 코드에도 답하기"
-        description={`팬이 ${LIMITS.codeLength}자리 코드를 DM으로 보내면 같은 DM을 보내요. 스토리·라이브처럼 댓글을 받기 어려운 곳에서 쓰기 좋아요${
-          props.code ? ` (코드: ${props.code})` : " (코드는 등록하면 만들어져요)"
-        }`}
+        badge="NEW"
+        description="DM으로 코드를 보낸 팬에게 자동 DM을 보내요. 스토리·라이브처럼 댓글을 받기 어려운 곳에서 쓰기 좋아요"
         checked={e.codeReply}
-        disabled={ro}
-        onChange={(v) => set({ codeReply: v })}
+        onChange={ro ? undefined : (v) => set({ codeReply: v })}
       />
+      {guide && props.code !== undefined && (
+        <div className="guide-box">
+          <HStack justify="space-between" pb="x1">
+            <Text textStyle="t3Regular" color="fg.neutralMuted">
+              팬에게 이렇게 알려 주세요
+            </Text>
+            <ActionButton size="xsmall" variant="ghost" onClick={async () => (await copyText(guide)) && toast("문구를 복사했어요. 스토리나 캡션에 붙여 넣으세요", "positive")}>
+              복사
+            </ActionButton>
+          </HStack>
+          <Text as="p" textStyle="t4Bold">
+            {e.codeReply ? (
+              <>
+                {guide.split(props.code!)[0]}
+                <span className="code-inline">{props.code}</span>
+                {guide.split(props.code!)[1]}
+              </>
+            ) : (
+              guide
+            )}
+          </Text>
+          {e.shareReply && (
+            <Text as="p" textStyle="t2Regular" color="fg.neutralSubtle" style={{ marginTop: 6 }}>
+              팬이 게시물의 ✈️ 공유 아이콘을 눌러 내 계정으로 보내야 동작해요. @아이디를 함께 알려 주면 공유 목록에서 바로 찾을 수 있어요.
+            </Text>
+          )}
+        </div>
+      )}
+      <ReplyPickerModal open={pickerOpen} value={r} onClose={() => setPickerOpen(false)} onSave={(v) => setReply(v)} />
     </VStack>
   );
 }

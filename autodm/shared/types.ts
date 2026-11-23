@@ -216,6 +216,8 @@ export interface DeliveryLog {
   sentAt?: number;
   readAt?: number;
   messageId?: string;
+  /** 보낼 때의 버튼 링크 (자동화를 지우거나 고쳐도 클릭이 동작하도록) */
+  links?: Record<string, string>;
 }
 
 export interface ClickLog {
@@ -244,6 +246,15 @@ export interface Template {
   updatedAt: number;
   usedCount: number;
   lastUsedAt?: number;
+}
+
+/* ───────────── 답글 모음 ───────────── */
+
+export interface ReplySet {
+  id: Id;
+  name: string;
+  replies: string[];
+  createdAt: number;
 }
 
 /* ───────────── 내 링크 ───────────── */

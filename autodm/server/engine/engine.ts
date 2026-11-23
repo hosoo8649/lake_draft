@@ -1,5 +1,5 @@
 import { uid } from "../../shared/factory";
-import { DAY, HOUR, LIMITS } from "../../shared/limits";
+import { DAY, HOUR, LIMITS, isCodeFormat, normalizeCode } from "../../shared/limits";
 import { replyPool } from "../../shared/presets";
 import type { Automation, Comment, DeliveryKind, DeliveryLog, DeliveryOrigin } from "../../shared/types";
 import { keywordHit } from "../../shared/validation";
@@ -21,6 +21,17 @@ export interface EngineOptions {
   now?: () => number;
   /** 클릭 추적 링크 기본 주소 (데모는 빈 문자열 = 상대 경로) */
   trackingBase: () => { base: string; track: boolean };
+  /** 올린 이미지(/uploads/...)를 바깥에서 볼 수 있는 주소로 바꿀 때 쓰는 기본 주소 */
+  assetBase?: () => string;
+}
+
+/** 보낸 메시지의 버튼 id → 링크 */
+function collectLinks(a: Automation, kind: DeliveryKind): Record<string, string> {
+  const m = kind === "nonFollower" ? a.dm.followGate.nonFollower : a.dm.main;
+  if (kind === "gate" || kind === "reply") return {};
+  const out: Record<string, string> = {};
+  for (const b of [...m.buttons, ...m.cards.flatMap((c) => c.buttons)]) if (b.url) out[b.id] = b.url;
+  return out;
 }
 
 /**
@@ -80,6 +91,17 @@ export class Engine {
     return candidates.find((a) => a.trigger.type === "all") ?? null;
   }
 
+  /** 이 자동화로 이미 DM을 받았거나 받을 예정인 사람인지 */
+  alreadyReached(automationId: string, userId: string): boolean {
+    return this.db.deliveries.some(
+      (d) =>
+        d.automationId === automationId &&
+        d.userId === userId &&
+        d.kind !== "reply" &&
+        (d.status === "sent" || d.status === "queued" || d.status === "retrying"),
+    );
+  }
+
   /* ───────────── 다음 게시물 자동화 연결 ───────────── */
 
   private async bindNextPost(postId: string): Promise<void> {
@@ -119,6 +141,8 @@ export class Engine {
     const a = this.pickAutomation(c.postId, c.text);
     if (!a) return { skipped: "no-match" };
     if (this.db.settings.dmPaused) return { automationId: a.id, skipped: "paused" };
+    // 같은 사람에게는 한 번만 (이미 DM을 받았거나 보낼 예정이면 건너뛰어요)
+    if (this.alreadyReached(a.id, c.userId)) return { automationId: a.id, skipped: "already-sent" };
 
     const scheduledHold = a.sendMode === "scheduled" && a.schedule && !a.schedule.firedAt;
     const notBefore = scheduledHold ? a.schedule!.at : this.now();
@@ -186,9 +210,10 @@ export class Engine {
       }
     }
     const text = msg.text?.trim() ?? "";
-    if (!a && new RegExp(`^\\d{${LIMITS.codeLength}}$`).test(text)) {
+    if (!a && isCodeFormat(text)) {
+      const code = normalizeCode(text);
       a = this.db.automations.find(
-        (x) => x.extras.codeReply && !x.codeRetired && x.code === text && this.acceptsDirectTriggers(x),
+        (x) => x.extras.codeReply && !x.codeRetired && normalizeCode(x.code) === code && this.acceptsDirectTriggers(x),
       );
       origin = "code";
     }
@@ -221,21 +246,23 @@ export class Engine {
   /** 버튼 클릭 기록 후 원래 링크 반환 */
   recordClick(deliveryId: string, buttonId: string): string | null {
     const d = this.db.deliveries.find((x) => x.id === deliveryId);
-    const a = d ? this.db.automations.find((x) => x.id === d.automationId) : undefined;
-    const button = a ? findButton(a, buttonId) : undefined;
-    if (!d || !button) return button?.url ?? null;
+    if (!d) return null;
+    // 보낼 때 기록해 둔 링크가 우선 (자동화를 지우거나 고쳐도 동작)
+    const a = this.db.automations.find((x) => x.id === d.automationId);
+    const url = d.links?.[buttonId] ?? (a ? findButton(a, buttonId)?.url : undefined);
+    if (!url) return null;
     this.db.clicks.push({
       id: uid("clk"),
       automationId: d.automationId,
       deliveryId,
       buttonId,
-      url: button.url,
+      url,
       userId: d.userId,
       createdAt: this.now(),
     });
     if (!d.readAt) d.readAt = this.now();
     this.store.changed();
-    return button.url;
+    return url;
   }
 
   /* ───────────── 일괄 발송 ───────────── */
@@ -257,15 +284,19 @@ export class Engine {
         .filter((d) => d.postId === a.postId && d.commentId && (d.kind === "gate" || d.kind === "main") && d.status !== "failed")
         .map((d) => d.commentId!),
     );
-    const targets = comments.filter(
-      (c) =>
-        !c.parentId &&
-        !this.isOwn(c.userId, c.username) &&
-        !already.has(c.id) &&
-        keywordHit(a.trigger, c.text) &&
+    const seenUsers = new Set<string>();
+    const targets = [...comments]
+      .sort((x, y) => x.createdAt - y.createdAt)
+      .filter((c) => {
+        if (c.parentId || this.isOwn(c.userId, c.username) || already.has(c.id)) return false;
+        if (!keywordHit(a.trigger, c.text)) return false;
         // 같은 게시물의 다른 키워드 자동화가 맡을 댓글은 제외
-        this.pickBatchOwner(a, c.text) === a.id,
-    );
+        if (this.pickBatchOwner(a, c.text) !== a.id) return false;
+        // 같은 사람에게는 한 번만
+        if (seenUsers.has(c.userId) || this.alreadyReached(a.id, c.userId)) return false;
+        seenUsers.add(c.userId);
+        return true;
+      });
     for (const c of targets) {
       this.enqueue(a, {
         kind: a.dm.followGate.enabled ? "gate" : "main",
@@ -421,6 +452,9 @@ export class Engine {
       const isReply = item.kind === "reply";
       // 일시 중지 중에는 이미 시작한 일괄 발송만 계속 보내요
       if (paused && item.origin !== "batch") continue;
+      // 꺼 둔 자동화는 다시 켤 때까지 보내지 않아요 (팔로우 확인 응답·일괄 발송은 이어서 보내요)
+      const owner = this.db.automations.find((x) => x.id === item.automationId);
+      if (owner && !owner.enabled && item.origin !== "postback" && item.origin !== "batch") continue;
       if (isReply && this.db.settings.replyPaused) continue;
       if (isReply ? replyBudget <= 0 : dmBudget <= 0) continue;
       perTick--;
@@ -445,12 +479,13 @@ export class Engine {
     }
     const gw = this.gateway();
     const { base, track } = this.opts.trackingBase();
-    const link = makeLinkBuilder(base, track);
+    const link = makeLinkBuilder(base, track, this.opts.assetBase?.() ?? base);
     let msg: OutgoingMessage | null = null;
     if (item.kind === "gate" || (item.kind === "main" && !a.dm.followGate.enabled)) msg = buildFirstMessage(a, log.id, link);
     else if (item.kind === "main") msg = buildFollowerMessage(a, log.id, link);
     else if (item.kind === "nonFollower") msg = buildNonFollowerMessage(a, log.id, link);
 
+    if (msg) log.links = collectLinks(a, item.kind);
     const ctx = { deliveryId: log.id, userId: item.userId, username: item.username };
     let result;
     try {

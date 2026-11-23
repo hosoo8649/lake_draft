@@ -2,7 +2,7 @@ import { HStack, Text, VStack } from "@seed-design/react";
 import { useState } from "react";
 import { ActionButton } from "seed-design/ui/action-button";
 import { Badge } from "seed-design/ui/badge";
-import { PostPicker, type PostWithMeta } from "../components/automation/Pickers";
+import { PostGrid, type PostWithMeta } from "../components/automation/Pickers";
 import { KeywordInput } from "../components/automation/KeywordInput";
 import { Avatar } from "../components/dm/Phone";
 import { useConfirm, useErrorToast, useToast } from "../components/feedback";
@@ -133,7 +133,29 @@ export function DrawsPage() {
         </div>
         {mode.step === 1 ? (
           <>
-            <PostPicker posts={posts.data} postId={postId} nextPost={false} allowNextPost={false} onChange={(v) => setPostId(v.postId)} />
+            <PostGrid posts={posts.data} postId={postId} onSelect={setPostId} showAutomationCount={false} />
+            {postId && draws.data.some((d) => d.postId === postId) && (
+              <div className="card" style={{ marginTop: 16 }}>
+                <Text textStyle="t4Bold">이 게시물의 지난 추첨</Text>
+                <VStack gap="x1" pt="x2">
+                  {draws.data
+                    .filter((d) => d.postId === postId)
+                    .map((d) => (
+                      <button key={d.id} type="button" className="link-row" onClick={() => setMode({ kind: "result", id: d.id })}>
+                        <b>{fmtDateTime(d.redrawnAt ?? d.createdAt)}</b>
+                        <span>
+                          {triggerSummary(d.trigger)} · {d.winners.length}명 당첨 — 결과 다시 보기 →
+                        </span>
+                      </button>
+                    ))}
+                </VStack>
+              </div>
+            )}
+            {selected && selected.commentsCount === 0 && (
+              <Text as="p" textStyle="t3Regular" color="fg.critical" style={{ marginTop: 12 }}>
+                댓글이 없는 게시물은 추첨할 수 없어요
+              </Text>
+            )}
             <div className="footer-bar">
               <ActionButton
                 variant="brandSolid"

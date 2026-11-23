@@ -1,5 +1,5 @@
 import { cloneDeep, uid } from "../shared/factory";
-import { DAY, LIMITS, MINUTE } from "../shared/limits";
+import { CODE_ALPHABET, DAY, LIMITS, MINUTE, isCodeFormat, normalizeCode } from "../shared/limits";
 import { BUILTIN_TEMPLATES } from "../shared/presets";
 import type {
   Automation,
@@ -8,6 +8,7 @@ import type {
   DrawWinner,
   Extras,
   LinkItem,
+  ReplySet,
   SendMode,
   Template,
   Trigger,
@@ -47,6 +48,8 @@ export interface AutomationInput {
   sendMode: SendMode;
   schedule?: { at: number; continueAfter: boolean };
   templateId?: string;
+  /** 화면에서 미리 받아 둔 DM 코드 */
+  code?: string;
 }
 
 export class Services {
@@ -63,13 +66,26 @@ export class Services {
 
   /* ───────────── 자동화 ───────────── */
 
-  private newCode(): string {
-    const used = new Set([...this.db.automations.map((a) => a.code), ...this.db.retiredCodes]);
-    for (let i = 0; i < 2000; i++) {
-      const c = String(Math.floor(1000 + Math.random() * 9000));
+  private usedCodes(): Set<string> {
+    return new Set([...this.db.automations.map((a) => normalizeCode(a.code)), ...this.db.retiredCodes.map(normalizeCode)]);
+  }
+
+  /** 영문·숫자 4자리 DM 코드 (헷갈리는 글자 제외) */
+  newCode(): string {
+    const used = this.usedCodes();
+    for (let i = 0; i < 5000; i++) {
+      let c = "";
+      for (let k = 0; k < LIMITS.codeLength; k++) c += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
+      // 숫자만으로 된 코드는 피해요 (전화번호 등과 헷갈리지 않게)
+      if (/^\d+$/.test(c)) continue;
       if (!used.has(c)) return c;
     }
     throw new HttpError(500, "코드를 만들 수 없어요");
+  }
+
+  private acceptCode(code: string | undefined): string {
+    if (code && isCodeFormat(code) && !this.usedCodes().has(normalizeCode(code))) return normalizeCode(code);
+    return this.newCode();
   }
 
   private validateSchedule(s: AutomationInput["schedule"]): string[] {
@@ -97,8 +113,9 @@ export class Services {
     const errs: string[] = [];
     if (!input.nextPost) {
       if (!input.postId || !this.db.posts.some((p) => p.id === input.postId)) errs.push("게시물을 골라 주세요");
-    } else if (input.sendMode === "batch") {
-      errs.push("다음 게시물에는 일괄 발송을 쓸 수 없어요");
+    } else {
+      if (input.sendMode === "batch") errs.push("다음 게시물에는 일괄 발송을 쓸 수 없어요");
+      if (this.db.automations.some((a) => a.nextPost && !a.postId)) errs.push("이미 다음에 올릴 게시물 자동화가 있어요");
     }
     const dm = this.sanitizeDM(input.dm);
     errs.push(...validateTrigger(input.trigger), ...validateDM(dm), ...validateExtras(input.extras, input.sendMode));
@@ -124,7 +141,7 @@ export class Services {
       trigger: { type: input.trigger.type, keywords: input.trigger.type === "keyword" ? input.trigger.keywords.map((k) => k.trim()) : [] },
       dm,
       extras: cloneDeep(input.extras),
-      code: this.newCode(),
+      code: this.acceptCode(input.code),
       sendMode: input.sendMode,
       origin: input.sendMode,
       schedule: input.sendMode === "scheduled" ? { ...input.schedule! } : undefined,
@@ -303,6 +320,34 @@ export class Services {
       if (!best || sent > best.sent) best = { a, sent };
     }
     return best ? { dm: cloneDeep(best.a.dm), extras: cloneDeep(best.a.extras), sent: best.sent } : null;
+  }
+
+  /* ───────────── 답글 모음 ───────────── */
+
+  upsertReplySet(input: { id?: string; name: string; replies: string[] }): ReplySet {
+    const replies = (input.replies ?? []).map((r) => String(r).trim()).filter(Boolean).slice(0, LIMITS.customRepliesMax);
+    const errs: string[] = [];
+    if (!input.name?.trim()) errs.push("답글 모음 이름을 넣어 주세요");
+    if ([...(input.name ?? "")].length > LIMITS.replySetName) errs.push(`이름은 ${LIMITS.replySetName}자까지예요`);
+    if (replies.length < LIMITS.customRepliesMin) errs.push(`답글은 ${LIMITS.customRepliesMin}개 이상 넣어 주세요`);
+    if (errs.length) throw bad(errs);
+    if (input.id) {
+      const r = this.db.replySets.find((x) => x.id === input.id);
+      if (!r) throw new HttpError(404, "답글 모음을 찾을 수 없어요");
+      r.name = input.name.trim();
+      r.replies = replies;
+      this.store.changed();
+      return r;
+    }
+    const r: ReplySet = { id: uid("rs"), name: input.name.trim(), replies, createdAt: this.now() };
+    this.db.replySets.unshift(r);
+    this.store.changed();
+    return r;
+  }
+
+  deleteReplySet(id: string): void {
+    this.db.replySets = this.db.replySets.filter((r) => r.id !== id);
+    this.store.changed();
   }
 
   /* ───────────── 내 링크 ───────────── */

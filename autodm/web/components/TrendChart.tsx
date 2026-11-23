@@ -49,6 +49,7 @@ export function TrendChart({ data }: { data: DailyPoint[] }) {
   const gap = 2;
   const y = (v: number) => pad.t + ih - (v / max) * ih;
   const last = data.length - 1;
+  const empty = data.every((d) => d.sent === 0 && d.clicks === 0);
 
   return (
     <div ref={boxRef} style={{ position: "relative" }}>
@@ -82,6 +83,7 @@ export function TrendChart({ data }: { data: DailyPoint[] }) {
               })}
               {/* 마지막 날만 값 표시 (선택적 직접 라벨) */}
               {i === last &&
+                !empty &&
                 SERIES.map((s, k) => (
                   <text
                     key={s.key}
@@ -114,6 +116,11 @@ export function TrendChart({ data }: { data: DailyPoint[] }) {
           );
         })}
         <line x1={pad.l} x2={W - pad.r} y1={pad.t + ih} y2={pad.t + ih} stroke="var(--seed-color-stroke-neutral-muted)" strokeWidth={1} />
+        {empty && (
+          <text x={pad.l + iw / 2} y={pad.t + ih / 2} textAnchor="middle" fontSize={13} fill="var(--seed-color-fg-neutral-subtle)">
+            아직 보낸 DM이 없어요. 자동화를 만들면 여기에 추이가 보여요
+          </text>
+        )}
       </svg>
       {hover !== null && data[hover] && (
         <div

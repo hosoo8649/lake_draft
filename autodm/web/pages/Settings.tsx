@@ -117,7 +117,7 @@ export function SettingsPage() {
           </VStack>
         </Section>
 
-        <Section title="그 밖의 메뉴">
+        <Section title="계정 · 도움말">
           <VStack gap="x2">
             <Row title="계정" description={`@${state.account.username} · ${state.account.mode === "demo" ? "데모" : "인스타그램 연동"} — 연동 상태 확인, 다시 연동, 해지`}>
               <ActionButton size="small" variant="neutralWeak" onClick={() => nav("/connect")}>
@@ -131,8 +131,23 @@ export function SettingsPage() {
                 </ActionButton>
               </Row>
             )}
-            <Row title="도움말" description="DM이 전송되지 않을 때 확인할 것들">
-              <ActionButton size="small" variant="neutralWeak" onClick={() => nav("/help")}>
+            <Row title="새로워진 매니저 둘러보기" description="주요 화면과 기능을 다섯 장으로 다시 봐요">
+              <ActionButton size="small" variant="neutralWeak" onClick={() => nav("/?tour=1")}>
+                열기
+              </ActionButton>
+            </Row>
+            <Row title="이용 가이드" description="연동부터 자동 DM 만들기·관리·추첨까지 시작 순서">
+              <ActionButton size="small" variant="neutralWeak" onClick={() => nav("/help?tab=guide")}>
+                열기
+              </ActionButton>
+            </Row>
+            <Row title="DM 발송 문제" description="DM이 전송되지 않을 때 확인할 것들">
+              <ActionButton size="small" variant="neutralWeak" onClick={() => nav("/help?tab=dm")}>
+                열기
+              </ActionButton>
+            </Row>
+            <Row title="연동 문제" description="연동이 안 되거나 다른 계정으로 연동됐을 때">
+              <ActionButton size="small" variant="neutralWeak" onClick={() => nav("/help?tab=connect")}>
                 열기
               </ActionButton>
             </Row>

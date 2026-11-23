@@ -1,62 +1,108 @@
-import { HStack, Text, VStack } from "@seed-design/react";
-import { useMemo } from "react";
+import { IconCalendarLine, IconCheckmarkLine, IconDot3HorizontalChatbubbleLeftLine, IconPaperplaneLine } from "@karrotmarket/react-monochrome-icon";
+import { HStack, Icon, Text, VStack } from "@seed-design/react";
+import { useMemo, type ReactNode } from "react";
 import { Chip } from "seed-design/ui/chip";
-import { SelectContent, SelectGroup, SelectItem, SelectRoot, SelectTrigger } from "seed-design/ui/select";
 import { Switch } from "seed-design/ui/switch";
+import { WheelPicker } from "seed-design/ui/wheel-picker";
 import { DAY, LIMITS, MINUTE } from "@shared/limits";
 import type { SendMode } from "@shared/types";
-import { SEND_MODE_DESC, SEND_MODE_LABEL, fmtDateTime } from "../../lib/format";
+import { SEND_MODE_LABEL, fmtDateTime } from "../../lib/format";
 
-const ICON: Record<SendMode, string> = { immediate: "✈️", scheduled: "⏱️", batch: "📨" };
+const STEP = LIMITS.scheduleStepMinutes * MINUTE;
+const ceilSlot = (t: number) => Math.ceil(t / STEP) * STEP;
+
+export function defaultScheduleAt(now = Date.now()): number {
+  return ceilSlot(now + 60 * MINUTE);
+}
+
+const ICON: Record<SendMode, ReactNode> = {
+  immediate: <IconDot3HorizontalChatbubbleLeftLine />,
+  scheduled: <IconCalendarLine />,
+  batch: <IconPaperplaneLine />,
+};
+
+const SUMMARY: Record<SendMode, string> = {
+  immediate: "댓글이 달릴 때마다 바로",
+  scheduled: "설정 후 새로 달린 댓글에, 정한 시간에 한 번에",
+  batch: `최근 ${LIMITS.batchLookbackDays}일 이내에 달린 댓글에 한 번에`,
+};
+
+const DETAILS: Record<SendMode, [string, string][]> = {
+  immediate: [
+    ["댓글이 달리면 바로 보내요.", "언제든 껐다 켤 수 있어요."],
+    ["같은 사람에게는 한 번만.", "이미 DM을 받은 댓글에는 다시 보내지 않아요."],
+  ],
+  scheduled: [
+    ["보내기 전까지 고칠 수 있어요.", "발송 시간·메시지 내용·버튼 링크"],
+    ["등록 후 고칠 수 없어요.", "키워드 조건·팔로워 조건 같은 발송 대상 옵션"],
+  ],
+  batch: [
+    ["이미 DM을 받은 댓글에는 다시 가지 않아요.", "기존 자동화를 끄거나 지워도 마찬가지예요."],
+    ["다 보내면 즉시 발송으로 바뀌어요.", "이후 댓글에도 계속 보내요."],
+    ["보내는 동안 수정·삭제할 수 없어요.", "놓친 댓글이 많이 쌓였을 때 한 번만 쓰는 걸 권장해요."],
+  ],
+};
 
 export function SendModeOptions(props: {
   value: SendMode;
   onChange: (m: SendMode) => void;
   disabled?: Partial<Record<SendMode, string>>;
+  /** 고른 방식 아래에 펼쳐 보여 줄 내용 (예약 시각 고르기) */
+  expanded?: Partial<Record<SendMode, ReactNode>>;
 }) {
   return (
     <VStack gap="x2" role="radiogroup" aria-label="언제 보낼까요?">
       {(["immediate", "scheduled", "batch"] as SendMode[]).map((m) => {
         const reason = props.disabled?.[m];
+        const selected = props.value === m;
         return (
-          <button
-            key={m}
-            type="button"
-            role="radio"
-            aria-checked={props.value === m}
-            className="option-card"
-            data-selected={props.value === m}
-            disabled={!!reason}
-            onClick={() => props.onChange(m)}
-          >
-            <span className="option-card__icon">{ICON[m]}</span>
-            <VStack gap="x0_5" as="span">
-              <Text textStyle="t5Bold">{SEND_MODE_LABEL[m]}</Text>
-              <Text textStyle="t3Regular" color="fg.neutralMuted">
-                {reason ?? SEND_MODE_DESC[m]}
-              </Text>
-            </VStack>
-          </button>
+          <div key={m} className="option-card" data-selected={selected} style={{ flexDirection: "column", cursor: "default", opacity: reason ? 0.5 : 1 }}>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              disabled={!!reason}
+              onClick={() => props.onChange(m)}
+              style={{ all: "unset", display: "flex", gap: 12, alignItems: "center", width: "100%", cursor: reason ? "not-allowed" : "pointer" }}
+            >
+              <span className="option-card__icon">
+                <Icon svg={ICON[m]} />
+              </span>
+              <VStack gap="x0_5" as="span" grow>
+                <Text textStyle="t5Bold">{SEND_MODE_LABEL[m]}</Text>
+                <Text textStyle="t3Regular" color="fg.neutralMuted">
+                  {reason ?? SUMMARY[m]}
+                </Text>
+              </VStack>
+              <span className="option-card__radio" aria-hidden />
+            </button>
+            {selected && !reason && (
+              <div className="option-card__detail" style={{ width: "100%" }}>
+                {DETAILS[m].map(([b, rest]) => (
+                  <HStack key={b} gap="x2" align="flex-start">
+                    <Icon svg={<IconCheckmarkLine />} size="x4" color="fg.neutralSubtle" />
+                    <span>
+                      <b>{b}</b> {rest}
+                    </span>
+                  </HStack>
+                ))}
+                {props.expanded?.[m] && <div style={{ marginTop: 8 }}>{props.expanded[m]}</div>}
+              </div>
+            )}
+          </div>
         );
       })}
     </VStack>
   );
 }
 
-const STEP = LIMITS.scheduleStepMinutes * MINUTE;
-const ceilSlot = (t: number) => Math.ceil(t / STEP) * STEP;
-
 function dayKey(ts: number) {
   const d = new Date(ts);
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
 
-export function SchedulePicker(props: {
-  at: number;
-  continueAfter: boolean;
-  onChange: (at: number, continueAfter: boolean) => void;
-  now?: number;
-}) {
+/** 예약 시각 — 빠른 선택 + 시간 휠 (다음 30분 단위부터 7일 뒤까지) */
+export function SchedulePicker(props: { at: number; continueAfter: boolean; onChange: (at: number, continueAfter: boolean) => void; now?: number }) {
   const now = props.now ?? Date.now();
   const first = ceilSlot(now + MINUTE);
   const last = Math.floor((now + LIMITS.scheduleMaxDays * DAY) / STEP) * STEP;
@@ -68,117 +114,86 @@ export function SchedulePicker(props: {
   }, [first, last]);
 
   const days = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const s of slots) if (!m.has(dayKey(s))) m.set(dayKey(s), s);
+    const m = new Map<string, number[]>();
+    for (const s of slots) m.set(dayKey(s), [...(m.get(dayKey(s)) ?? []), s]);
     return [...m.entries()];
   }, [slots]);
 
-  const selectedDay = dayKey(props.at);
-  const timesOfDay = slots.filter((s) => dayKey(s) === selectedDay);
+  const at = slots.includes(props.at) ? props.at : slots[0];
+  const selectedDay = dayKey(at);
+  const timesOfDay = days.find(([k]) => k === selectedDay)?.[1] ?? [];
 
-  const at = (base: Date, h: number) => {
+  const setHour = (base: Date, h: number) => {
     const d = new Date(base);
     d.setHours(h, 0, 0, 0);
     return d.getTime();
   };
-  const today = new Date(now);
-  const tomorrow = new Date(now + DAY);
   const quick = [
     { label: "1시간 뒤", t: ceilSlot(now + 60 * MINUTE) },
-    { label: "오늘 저녁", t: at(today, 19) },
-    { label: "내일 아침", t: at(tomorrow, 9) },
-    { label: "내일 저녁", t: at(tomorrow, 19) },
+    { label: "오늘 저녁", t: setHour(new Date(now), 19) },
+    { label: "내일 아침", t: setHour(new Date(now + DAY), 9) },
+    { label: "내일 저녁", t: setHour(new Date(now + DAY), 19) },
   ].filter((q) => q.t >= first && q.t <= last);
 
   const dLabel = (ts: number) => {
     const d = new Date(ts);
     const diff = Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / DAY);
-    const pre = diff === 0 ? "오늘" : diff === 1 ? "내일" : `${d.getMonth() + 1}/${d.getDate()}`;
+    const pre = diff === 0 ? "오늘" : diff === 1 ? "내일" : `${d.getMonth() + 1}월 ${d.getDate()}일`;
     return `${pre} (${"일월화수목금토"[d.getDay()]})`;
   };
   const tLabel = (ts: number) => {
     const d = new Date(ts);
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    const h = d.getHours();
+    return `${h < 12 ? "오전" : "오후"} ${h % 12 === 0 ? 12 : h % 12}:${String(d.getMinutes()).padStart(2, "0")}`;
   };
 
   return (
-    <VStack gap="x4">
-      <VStack gap="x2">
-        <Text textStyle="t4Bold">빠른 선택</Text>
-        <div className="chips">
-          {quick.map((q) => (
-            <Chip.Toggle
-              key={q.label}
-              size="small"
-              variant="outlineStrong"
-              checked={props.at === q.t}
-              onCheckedChange={() => props.onChange(q.t, props.continueAfter)}
-            >
-              <Chip.Label>{q.label}</Chip.Label>
-            </Chip.Toggle>
-          ))}
-        </div>
-      </VStack>
-      <HStack gap="x3" wrap>
-        <VStack gap="x1_5" style={{ minWidth: 170, flex: 1 }}>
-          <Text textStyle="t3Medium" color="fg.neutralMuted">
-            날짜
-          </Text>
-          <SelectRoot
-            value={[selectedDay]}
-            onValueChange={(v) => {
-              const start = days.find(([k]) => k === v[0])?.[1];
-              if (!start) return;
-              // 같은 시각을 유지하되 없으면 그 날 첫 슬롯
-              const d = new Date(start);
-              const keep = new Date(props.at);
-              d.setHours(keep.getHours(), keep.getMinutes(), 0, 0);
-              const t = slots.includes(d.getTime()) ? d.getTime() : start;
-              props.onChange(t, props.continueAfter);
-            }}
-          >
-            <SelectTrigger aria-label="날짜" placeholder="날짜" />
-            <SelectContent>
-              <SelectGroup>
-                {days.map(([k, s]) => (
-                  <SelectItem key={k} value={k} label={dLabel(s)} />
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </SelectRoot>
-        </VStack>
-        <VStack gap="x1_5" style={{ minWidth: 140, flex: 1 }}>
-          <Text textStyle="t3Medium" color="fg.neutralMuted">
-            시간 (30분 단위)
-          </Text>
-          <SelectRoot value={[String(props.at)]} onValueChange={(v) => props.onChange(Number(v[0]), props.continueAfter)}>
-            <SelectTrigger aria-label="시간" placeholder="시간" />
-            <SelectContent>
-              <SelectGroup>
-                {timesOfDay.map((s) => (
-                  <SelectItem key={s} value={String(s)} label={tLabel(s)} />
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </SelectRoot>
-        </VStack>
-      </HStack>
-      <Text textStyle="t3Regular" color="fg.brand">
-        {fmtDateTime(props.at)}에 그때까지 모인 댓글에 한 번에 보내요
+    <VStack gap="x3">
+      <div className="chips">
+        {quick.map((q) => (
+          <Chip.Toggle key={q.label} size="small" variant="outlineStrong" checked={at === q.t} onCheckedChange={() => props.onChange(q.t, props.continueAfter)}>
+            <Chip.Label>{q.label}</Chip.Label>
+          </Chip.Toggle>
+        ))}
+      </div>
+      <WheelPicker
+        aria-label="보낼 시각"
+        columns={[
+          {
+            id: "day",
+            "aria-label": "날짜",
+            options: days.map(([k, s]) => ({ value: k, label: dLabel(s[0]) })),
+            value: selectedDay,
+            onValueChange: (k: string) => {
+              const list = days.find(([x]) => x === k)?.[1];
+              if (!list) return;
+              // 같은 시각을 유지하되 없으면 그날 첫 시각
+              const keep = new Date(at);
+              const same = list.find((s) => new Date(s).getHours() === keep.getHours() && new Date(s).getMinutes() === keep.getMinutes());
+              props.onChange(same ?? list[0], props.continueAfter);
+            },
+          },
+          {
+            id: "time",
+            "aria-label": "시간",
+            options: timesOfDay.map((s) => ({ value: String(s), label: tLabel(s) })),
+            value: String(at),
+            onValueChange: (v: string) => props.onChange(Number(v), props.continueAfter),
+          },
+        ]}
+      />
+      <Text textStyle="t3Bold" color="fg.brand" align="center">
+        {fmtDateTime(at)}에 보내요
       </Text>
-      <HStack justify="space-between" align="flex-start" gap="x4" className="card" style={{ padding: "14px 16px" }}>
+      <HStack justify="space-between" align="flex-start" gap="x4" className="guide-box">
         <VStack gap="x0_5">
           <Text textStyle="t4Bold">보낸 뒤 새 댓글에도 바로 보내기</Text>
           <Text textStyle="t3Regular" color="fg.neutralMuted">
-            켜 두면 예약 시각이 지난 뒤 달리는 댓글에도 바로 보내요
+            예약 시각이 지난 뒤 달리는 댓글에도 바로 보내요
           </Text>
         </VStack>
-        <Switch checked={props.continueAfter} onCheckedChange={(v) => props.onChange(props.at, v)} aria-label="보낸 뒤 새 댓글에도 바로 보내기" />
+        <Switch checked={props.continueAfter} onCheckedChange={(v) => props.onChange(at, v)} aria-label="보낸 뒤 새 댓글에도 바로 보내기" />
       </HStack>
     </VStack>
   );
-}
-
-export function defaultScheduleAt(now = Date.now()): number {
-  return ceilSlot(now + 60 * MINUTE);
 }

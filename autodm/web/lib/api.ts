@@ -80,3 +80,11 @@ export function useApi<T>(path: string | null, opts: { live?: boolean } = { live
 
   return { data, error, loading, reload, setData };
 }
+
+/** 캐러셀 이미지 올리기 → /uploads/... 주소 */
+export async function uploadImage(file: File): Promise<string> {
+  const res = await fetch("/api/uploads", { method: "POST", headers: { "Content-Type": file.type }, body: file });
+  const json = (await res.json().catch(() => ({}))) as { url?: string; error?: string; details?: string[] };
+  if (!res.ok || !json.url) throw new ApiError(json.error ?? "이미지를 올리지 못했어요", json.details ?? [json.error ?? "이미지를 올리지 못했어요"], res.status);
+  return json.url;
+}

@@ -1,7 +1,9 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { uid } from "../shared/factory";
-import { DAY, HOUR } from "../shared/limits";
+import { DAY, HOUR, LIMITS } from "../shared/limits";
 import type { Post, Settings } from "../shared/types";
 import { IG_SCOPES, config, liveConfigured } from "./config";
 import { Engine } from "./engine/engine";
@@ -9,6 +11,7 @@ import { DEMO_PROFILE, DemoGateway, randomSampleComment, seedDemo } from "./inst
 import type { Gateway } from "./instagram/gateway";
 import { LiveGateway, authorizeUrl, exchangeCode, refreshToken, subscribeWebhooks } from "./instagram/live";
 import { dispatchWebhook, verifySignature, type WebhookPayload } from "./instagram/webhook";
+import { fetchPublic } from "./safeFetch";
 import { HttpError, Services } from "./services";
 import { emptyDB, type Store } from "./store";
 import { homeSummary, publicAccount, toView } from "./views";
@@ -25,6 +28,14 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
   const gateway = (): Gateway => (db().account?.mode === "live" ? liveGw : demoGw);
   const publicBase = () => (db().settings.publicBaseUrl || config.publicBaseUrl).replace(/\/$/, "");
 
+  /** 계정을 바꾸거나 해지해도 남기는 것: 템플릿·내 링크·답글 모음·설정 */
+  const keepLibrary = () => ({
+    templates: db().templates,
+    links: db().links,
+    replySets: db().replySets,
+    settings: db().settings,
+  });
+
   const engine = new Engine(store, gateway, {
     now,
     trackingBase: () => {
@@ -32,6 +43,7 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
       const base = publicBase();
       return { base, track: !!base };
     },
+    assetBase: () => (db().account?.mode === "live" ? publicBase() : ""),
   });
   const services = new Services(store, engine, gateway, now);
 
@@ -81,6 +93,11 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
     res.redirect(302, url);
   });
 
+  /* ───────────── 올린 이미지 ───────────── */
+
+  const uploadDir = path.join(path.dirname(config.dataFile), "uploads");
+  app.use("/uploads", express.static(uploadDir, { maxAge: "7d", fallthrough: false }));
+
   /* ───────────── Instagram 로그인 (OAuth) ───────────── */
 
   const redirectUri = () => `${publicBase()}/auth/instagram/callback`;
@@ -118,7 +135,7 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
       const profile = await tmpGw.fetchProfile();
       // 데모에서 넘어오거나 다른 계정으로 연동하면 이전 자동화·기록은 비워요 (같은 계정 재연동은 유지)
       if (!prev || prev.mode !== "live" || prev.igUserId !== profile.igUserId) {
-        store.reset({ ...emptyDB(), templates: db().templates, links: db().links, settings: db().settings });
+        store.reset({ ...emptyDB(), ...keepLibrary() });
       }
       db().account = {
         connected: true,
@@ -182,7 +199,7 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
 
   /* 계정 */
   api.post("/account/demo", (_req, res) => {
-    store.reset({ ...emptyDB(), templates: db().templates, links: db().links, settings: db().settings });
+    store.reset({ ...emptyDB(), ...keepLibrary() });
     db().account = { connected: true, mode: "demo", ...DEMO_PROFILE, connectedAt: now() };
     seedDemo(store);
     res.json(publicAccount(db().account));
@@ -190,7 +207,7 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
 
   /** 연동 해지 — 자동화와 기록이 모두 삭제돼요 */
   api.delete("/account", (_req, res) => {
-    store.reset({ ...emptyDB(), templates: db().templates, links: db().links, settings: db().settings });
+    store.reset({ ...emptyDB(), ...keepLibrary() });
     res.json({ ok: true });
   });
 
@@ -268,6 +285,30 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
     res.json({ ok: true });
   });
 
+  /* DM 코드 미리 받기 (등록 전에 팬 안내 문구에 보여 줘요) */
+  api.get("/codes/new", (_req, res) => res.json({ code: services.newCode() }));
+
+  /* 답글 모음 */
+  api.get("/reply-sets", (_req, res) => res.json(db().replySets));
+  api.post("/reply-sets", (req, res) => res.status(201).json(services.upsertReplySet(req.body)));
+  api.put("/reply-sets/:id", (req, res) => res.json(services.upsertReplySet({ ...req.body, id: req.params.id })));
+  api.delete("/reply-sets/:id", (req, res) => {
+    services.deleteReplySet(req.params.id);
+    res.json({ ok: true });
+  });
+
+  /* 캐러셀 이미지 올리기 */
+  const EXT: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif" };
+  api.post("/uploads", express.raw({ type: Object.keys(EXT), limit: LIMITS.uploadBytes }), (req, res) => {
+    const ext = EXT[String(req.headers["content-type"] ?? "").split(";")[0]];
+    const body = req.body as Buffer;
+    if (!ext || !Buffer.isBuffer(body) || body.length === 0) throw new HttpError(400, "JPG·PNG·WEBP·GIF 이미지만 올릴 수 있어요");
+    fs.mkdirSync(uploadDir, { recursive: true });
+    const name = `${uid("img")}.${ext}`;
+    fs.writeFileSync(path.join(uploadDir, name), body);
+    res.status(201).json({ url: `/uploads/${name}` });
+  });
+
   /* 내 링크 */
   api.get("/links", (_req, res) => res.json(db().links));
   api.post("/links", (req, res) => res.status(201).json(services.upsertLink(req.body)));
@@ -281,8 +322,7 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
   api.get("/link-preview", async (req, res) => {
     const url = String(req.query.url ?? "");
     try {
-      const r = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(6000) });
-      const html = (await r.text()).slice(0, 300_000);
+      const html = await fetchPublic(url);
       const meta = (p: string) =>
         html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${p}["'][^>]+content=["']([^"']+)["']`, "i"))?.[1] ??
         html.match(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${p}["']`, "i"))?.[1];
@@ -451,8 +491,18 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
 
   // 오류 응답
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    if ((err as { type?: string })?.type === "entity.too.large") {
+      res.status(413).json({ error: "파일이 너무 커요 (최대 8MB)", details: ["파일이 너무 커요 (최대 8MB)"] });
+      return;
+    }
     if (err instanceof HttpError) {
       res.status(err.status).json({ error: err.message, details: err.details ?? [err.message] });
+      return;
+    }
+    const status = (err as { status?: number; statusCode?: number })?.status ?? (err as { statusCode?: number })?.statusCode;
+    if (typeof status === "number" && status >= 400 && status < 500) {
+      const msg = status === 404 ? "찾을 수 없어요" : "잘못된 요청이에요";
+      res.status(status).json({ error: msg, details: [msg] });
       return;
     }
     console.error(err);

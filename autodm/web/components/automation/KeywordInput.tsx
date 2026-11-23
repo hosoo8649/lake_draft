@@ -59,7 +59,7 @@ export function KeywordInput(props: {
           className="kbd-input"
           value={draft}
           disabled={props.disabled}
-          placeholder={props.keywords.length ? "키워드 더 넣기" : "키워드를 쓰고 쉼표(,)나 엔터"}
+          placeholder={props.keywords.length ? "키워드 더 넣기" : "키워드 입력 (쉼표로 여러 개)"}
           aria-label="키워드 입력"
           onChange={(e) => {
             const v = e.target.value;
@@ -80,6 +80,16 @@ export function KeywordInput(props: {
           }}
           onBlur={() => draft.trim() && add(draft)}
         />
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label="키워드 추가"
+          disabled={props.disabled || !draft.trim()}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => draft.trim() && add(draft)}
+        >
+          <Icon svg={<IconPlusLine />} />
+        </button>
       </div>
       <HStack justify="space-between">
         <Text textStyle="t2Regular" color={shownError ? "fg.critical" : "fg.neutralSubtle"}>
@@ -96,12 +106,10 @@ export function KeywordInput(props: {
           </Text>
           <div className="chips">
             {ideas.map((i) => (
-              <Chip.Button key={i} size="small" variant="outlineWeak" onClick={() => add(i)}>
-                <Chip.PrefixIcon>
-                  <Icon svg={<IconPlusLine />} />
-                </Chip.PrefixIcon>
-                <Chip.Label>{i}</Chip.Label>
-              </Chip.Button>
+              <button key={i} type="button" className="idea-chip" onClick={() => add(i)} aria-label={`키워드 ${i} 넣기`}>
+                <Icon svg={<IconPlusLine />} />
+                {i}
+              </button>
             ))}
           </div>
         </VStack>

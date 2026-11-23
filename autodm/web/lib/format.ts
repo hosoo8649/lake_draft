@@ -96,3 +96,14 @@ export async function copyText(text: string): Promise<boolean> {
     return ok;
   }
 }
+
+/** 팬에게 알려 줄 문구 (DM 공유·DM 코드) */
+export function fanGuideText(username: string | undefined, code: string, share: boolean, codeOn: boolean): string {
+  const me = `@${username ?? "내아이디"}`;
+  if (share && codeOn) return `이 게시물을 저에게(${me}) DM으로 공유하거나, DM으로 ${code} 이라고 보내주세요`;
+  if (share) return `이 게시물을 ✈️ 공유 버튼으로 저(${me})에게 DM으로 보내주세요`;
+  if (codeOn) return `저(${me})에게 DM으로 ${code} 이라고 보내주세요`;
+  return "";
+}
+
+export const TONE_LABEL = { polite: "정중하게", friendly: "친근하게", custom: "내 답글" } as const;

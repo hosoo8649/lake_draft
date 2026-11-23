@@ -169,6 +169,7 @@ describe("자동 DM 엔진", () => {
       comment("post_2", "fan_3", "공구 알림!", clock - 8 * DAY), // 7일 지남
       comment("post_2", "fan_4", "예뻐요", clock - HOUR), // 키워드 없음
       comment("post_2", "fan_5", "공구 참여", clock - HOUR),
+      comment("post_2", "fan_5", "공구 또 참여", clock - 30 * MINUTE), // 같은 사람은 한 번만
     ];
     const a = services.createAutomation(
       input({ postId: "post_2", trigger: { type: "keyword", keywords: ["공구"] }, sendMode: "batch" }),
@@ -203,10 +204,10 @@ describe("자동 DM 엔진", () => {
     extras.codeReply = true;
     extras.shareReply = true;
     const a = services.createAutomation(input({ extras }));
-    expect(a.code).toMatch(/^\d{4}$/);
-    await engine.handleMessage("fan_2", "fan_2", { text: a.code });
+    expect(a.code).toMatch(/^[A-Z0-9]{4}$/);
+    await engine.handleMessage("fan_2", "fan_2", { text: ` ${a.code.toLowerCase()} ` });
     await engine.handleMessage("fan_3", "fan_3", { sharedPostId: "post_1" });
-    await engine.handleMessage("fan_4", "fan_4", { text: "0000" });
+    await engine.handleMessage("fan_4", "fan_4", { text: "ZZZZ" });
     await engine.tick();
     expect(store.db.demo.inbox.map((m) => m.fanId).sort()).toEqual(["fan_2", "fan_3"]);
     // 코드를 끄면 그 코드는 다시 못 쓰고, 다시 켜면 새 코드
@@ -240,13 +241,14 @@ describe("자동 DM 엔진", () => {
     expect(() => services.updateAutomation(a.id, { enabled: false })).toThrow(/일시 중지/);
   });
 
-  it("읽음은 사람 기준, 댓글 답글은 프리셋에서 무작위로 단다", async () => {
+  it("같은 사람에게는 한 번만 보내고, 읽음은 사람 기준, 답글은 프리셋에서 단다", async () => {
     const { store, services, engine } = setup();
     const extras = defaultExtras();
     extras.commentReply.enabled = true;
     services.createAutomation(input({ extras }));
     await engine.handleComment(comment("post_1", "fan_2", "링크"));
-    await engine.handleComment(comment("post_1", "fan_2", "링크 하나 더"));
+    expect((await engine.handleComment(comment("post_1", "fan_2", "링크 하나 더"))).skipped).toBe("already-sent");
+    await engine.handleComment(comment("post_1", "fan_3", "링크!"));
     await engine.tick();
     expect(store.db.demo.replies).toHaveLength(2);
     engine.handleRead("fan_2");
@@ -254,6 +256,65 @@ describe("자동 DM 엔진", () => {
     const s = automationStats(store, store.db.automations[0].id);
     expect(s.sent).toBe(2);
     expect(s.read).toBe(1);
+  });
+
+  it("DM 코드는 다시 보내도 받을 수 있다 (댓글 DM을 못 받은 팬 안내용)", async () => {
+    const { store, services, engine } = setup();
+    const extras = defaultExtras();
+    extras.codeReply = true;
+    const a = services.createAutomation(input({ extras, code: "ab7k" }));
+    expect(a.code).toBe("AB7K");
+    await engine.handleMessage("fan_2", "fan_2", { text: "AB7K" });
+    await engine.handleMessage("fan_2", "fan_2", { text: "ab7k" });
+    await engine.tick();
+    expect(store.db.demo.inbox.filter((m) => m.fanId === "fan_2")).toHaveLength(2);
+    // 이미 쓰는 코드는 새로 발급
+    const b = services.createAutomation(input({ postId: "post_2", extras, code: "AB7K" }));
+    expect(b.code).not.toBe("AB7K");
+  });
+
+  it("다음 게시물 자동화는 한 번에 하나만", () => {
+    const { services } = setup();
+    services.createAutomation(input({ postId: null, nextPost: true }));
+    expect(() => services.createAutomation(input({ postId: null, nextPost: true, trigger: { type: "keyword", keywords: ["다른"] } }))).toThrow(
+      /이미 다음에 올릴 게시물 자동화가 있어요/,
+    );
+  });
+
+  it("꺼 둔 자동화의 대기 발송은 다시 켤 때까지 보내지 않는다", async () => {
+    const { store, services, engine } = setup();
+    store.db.settings.rateLimitPerHour = 1;
+    const a = services.createAutomation(input({ trigger: { type: "all", keywords: [] } }));
+    await engine.handleComment(comment("post_1", "fan_2", "hi"));
+    await engine.handleComment(comment("post_1", "fan_3", "hi"));
+    await engine.tick();
+    expect(store.db.demo.inbox).toHaveLength(1);
+    services.updateAutomation(a.id, { enabled: false });
+    clock += HOUR + MINUTE;
+    await engine.tick();
+    expect(store.db.demo.inbox).toHaveLength(1);
+    services.updateAutomation(a.id, { enabled: true });
+    await engine.tick();
+    expect(store.db.demo.inbox).toHaveLength(2);
+  });
+
+  it("자동화를 지워도 이미 보낸 DM의 버튼 링크는 동작한다", async () => {
+    const { store, services, engine } = setup();
+    const a = services.createAutomation(input());
+    await engine.handleComment(comment("post_1", "fan_2", "링크"));
+    await engine.tick();
+    const msg = store.db.demo.inbox[0];
+    const [, dId, bId] = msg.buttons![0].url!.split("/").filter(Boolean);
+    services.deleteAutomation(a.id);
+    expect(engine.recordClick(dId, bId)).toBe("https://example.com/p");
+  });
+
+  it("답글 모음: 3개 이상, 이름 필수", () => {
+    const { services } = setup();
+    expect(() => services.upsertReplySet({ name: "", replies: ["a", "b", "c"] })).toThrow(/이름/);
+    expect(() => services.upsertReplySet({ name: "기본", replies: ["a", "b"] })).toThrow(/3개 이상/);
+    const r = services.upsertReplySet({ name: "기본", replies: ["a", " b ", "c", ""] });
+    expect(r.replies).toEqual(["a", "b", "c"]);
   });
 
   it("수정: 발송 방식·팔로우 확인 여부는 바꿀 수 없고 예약은 키워드를 바꿀 수 없다", () => {

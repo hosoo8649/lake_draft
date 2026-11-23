@@ -14,6 +14,7 @@ import type {
   Draw,
   LinkItem,
   Post,
+  ReplySet,
   Settings,
   Template,
 } from "../shared/types";
@@ -46,6 +47,7 @@ export interface DB {
   automations: Automation[];
   templates: Template[];
   links: LinkItem[];
+  replySets: ReplySet[];
   draws: Draw[];
   deliveries: DeliveryLog[];
   clicks: ClickLog[];
@@ -54,7 +56,7 @@ export interface DB {
   demo: DemoState;
   retiredCodes: string[];
   replyCursor: Record<string, number>;
-  /** 계정이 연결된 시점에 이미 있던 게시물 (다음 게시물 자동화 판단용) */
+  /** Instagram 로그인 보안 확인 값 */
   oauthState?: string;
 }
 
@@ -67,6 +69,7 @@ export function emptyDB(): DB {
     automations: [],
     templates: [],
     links: [],
+    replySets: [],
     draws: [],
     deliveries: [],
     clicks: [],

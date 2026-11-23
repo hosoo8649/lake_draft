@@ -1,4 +1,5 @@
-import { HStack, Text, VStack } from "@seed-design/react";
+import { IconBookmarkLine, IconChevronRightLine, IconPlusLine } from "@karrotmarket/react-monochrome-icon";
+import { HStack, Icon, PrefixIcon, Text, VStack } from "@seed-design/react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ActionButton } from "seed-design/ui/action-button";
@@ -7,27 +8,21 @@ import { Callout } from "seed-design/ui/callout";
 import { SegmentedControl, SegmentedControlItem } from "seed-design/ui/segmented-control";
 import { LIMITS } from "@shared/limits";
 import type { Template } from "@shared/types";
-import { DMEditor } from "../components/dm/DMEditor";
+import { featureRows } from "../components/automation/Pickers";
+import { DMPreview } from "../components/dm/DMEditor";
 import { useConfirm, useErrorToast, useToast } from "../components/feedback";
 import { Modal } from "../components/Modal";
-import { EmptyState, Loading, PageHeader, Section } from "../components/ui";
+import { Loading, PageHeader, Section } from "../components/ui";
 import { api, useApi } from "../lib/api";
 import { useAppState } from "../lib/appState";
-import { fmtRelative } from "../lib/format";
 
-function features(t: Template): string[] {
-  return [
-    t.dm.followGate.enabled && "팔로우 확인",
-    t.extras.commentReply.enabled && "댓글 답글",
-    t.extras.shareReply && "DM 공유",
-    t.extras.codeReply && "DM 코드",
-    t.dm.main.format === "carousel" && "캐러셀",
-  ].filter(Boolean) as string[];
+function buttonCount(t: Template): string {
+  return t.dm.main.format === "carousel" ? `카드 ${t.dm.main.cards.length}장` : `버튼 ${t.dm.main.buttons.length}개`;
 }
 
 export function TemplatesPage() {
   const nav = useNavigate();
-  const { state, links } = useAppState();
+  const { state } = useAppState();
   const { data, reload } = useApi<{ mine: Template[]; builtin: Template[] }>("/templates");
   const suggestion = useApi<{ sent: number } | null>("/templates/suggestion");
   const [sort, setSort] = useState<"used" | "recent">("used");
@@ -40,13 +35,16 @@ export function TemplatesPage() {
     const list = [...(data?.mine ?? [])];
     return sort === "used"
       ? list.sort((a, b) => b.usedCount - a.usedCount || b.updatedAt - a.updatedAt)
-      : list.sort((a, b) => b.updatedAt - a.updatedAt);
+      : list.sort((a, b) => (b.lastUsedAt ?? b.updatedAt) - (a.lastUsedAt ?? a.updatedAt));
   }, [data, sort]);
 
   if (!data || !state) return <Loading />;
   const totalUsed = data.mine.reduce((s, t) => s + t.usedCount, 0);
+  const full = data.mine.length >= LIMITS.templates;
 
   const remove = async (t: Template) => {
+    setPreview(null);
+    await new Promise((r) => setTimeout(r, 200));
     const ok = await confirm({
       title: `‘${t.name}’을(를) 삭제할까요?`,
       description: "템플릿을 지워도 그 템플릿으로 만든 자동화는 그대로 남아요.",
@@ -56,7 +54,6 @@ export function TemplatesPage() {
     if (!ok) return;
     try {
       await api(`/templates/${t.id}`, { method: "DELETE" });
-      setPreview(null);
       toast("템플릿을 삭제했어요");
       void reload();
     } catch (e) {
@@ -65,9 +62,9 @@ export function TemplatesPage() {
   };
 
   const Row = ({ t }: { t: Template }) => (
-    <button type="button" className="option-card" onClick={() => setPreview(t)}>
-      <span className="option-card__icon">{t.emoji ?? "💬"}</span>
-      <VStack gap="x1" grow as="span">
+    <button type="button" className="option-card" style={{ alignItems: "center" }} onClick={() => setPreview(t)}>
+      <span className="option-card__icon">{t.builtin ? <span style={{ fontSize: 20 }}>{t.emoji}</span> : <Icon svg={<IconBookmarkLine />} />}</span>
+      <VStack gap="x0_5" grow as="span" style={{ minWidth: 0 }}>
         <HStack gap="x1_5" as="span" wrap>
           <Text textStyle="t5Bold">{t.name}</Text>
           {t.recommended && (
@@ -75,36 +72,53 @@ export function TemplatesPage() {
               추천
             </Badge>
           )}
-          {features(t).map((f) => (
-            <Badge key={f} size="medium" variant="weak" tone="neutral">
-              {f}
-            </Badge>
-          ))}
         </HStack>
-        <Text textStyle="t3Regular" color="fg.neutralMuted">
-          {t.builtin
-            ? t.description
-            : `이 템플릿으로 만든 자동화 ${t.usedCount}개 · 버튼 ${t.dm.main.format === "carousel" ? t.dm.main.cards.length + "장 카드" : t.dm.main.buttons.length + "개"} · ${fmtRelative(t.updatedAt)} 수정`}
+        <Text textStyle="t3Regular" color="fg.neutralMuted" maxLines={1}>
+          {t.builtin ? t.description : `${buttonCount(t)} · 이 템플릿으로 만든 자동화 ${t.usedCount}개`}
         </Text>
       </VStack>
+      <Icon svg={<IconChevronRightLine />} color="fg.neutralSubtle" />
     </button>
   );
 
   return (
     <div className="page page--narrow">
-      <PageHeader
-        title="내 템플릿"
-        description="DM 문구·버튼·팔로우 확인·댓글 답글·DM 공유/코드 설정을 한 묶음으로 저장해요. 게시물·키워드·발송 시점은 자동화를 만들 때마다 정해요."
-        actions={
-          <ActionButton variant="brandSolid" disabled={data.mine.length >= LIMITS.templates} onClick={() => nav("/templates/new")}>
-            + 새 템플릿 만들기
-          </ActionButton>
-        }
-      />
+      <PageHeader title="내 템플릿" />
       <VStack gap="x5">
+        <div className="stage" style={{ padding: 24 }}>
+          <Text textStyle="t3Medium" color="fg.neutralMuted">
+            템플릿 {data.mine.length}개 · 최대 {LIMITS.templates}개
+          </Text>
+          <Text as="h2" textStyle="t8Bold">
+            저장한 템플릿으로
+            <br />
+            자동화를 간편하게 만들어요
+          </Text>
+          <Text textStyle="t3Regular" color="fg.neutralMuted">
+            DM 문구·버튼·팔로우 확인·댓글 답글·DM 공유/코드 설정을 한 묶음으로 저장해요. 게시물·키워드·발송 시점은 자동화를 만들 때마다 정해요.
+          </Text>
+          <HStack pt="x1">
+            <ActionButton variant="brandSolid" disabled={full} onClick={() => nav("/templates/new")}>
+              <PrefixIcon svg={<IconPlusLine />} />새 템플릿 만들기
+            </ActionButton>
+          </HStack>
+          {full && (
+            <Text textStyle="t2Regular" color="fg.critical">
+              템플릿은 {LIMITS.templates}개까지 저장할 수 있어요. 안 쓰는 템플릿을 지워 주세요.
+            </Text>
+          )}
+        </div>
+
         <Section
-          title={`저장한 템플릿 ${data.mine.length}개`}
-          description={`이 템플릿들로 만든 자동화 ${totalUsed}개 · 최대 ${LIMITS.templates}개`}
+          title={
+            <HStack gap="x1_5" as="span">
+              내 템플릿
+              <Badge size="medium" variant="weak" tone="neutral">
+                {data.mine.length}
+              </Badge>
+            </HStack>
+          }
+          description={data.mine.length ? `이 템플릿들로 만든 자동화 ${totalUsed}개` : undefined}
           actions={
             data.mine.length > 1 ? (
               <SegmentedControl aria-label="정렬" value={sort} onValueChange={(v) => setSort(v as "used" | "recent")}>
@@ -116,7 +130,7 @@ export function TemplatesPage() {
         >
           {data.mine.length === 0 ? (
             <VStack gap="x3">
-              <EmptyState emoji="🗂️" title="아직 저장한 템플릿이 없어요" description="자주 보내는 DM을 템플릿으로 저장해 두면 다음부터 고르기만 하면 돼요." />
+              <Text color="fg.neutralMuted">아직 저장한 템플릿이 없어요. 자주 보내는 DM을 템플릿으로 저장해 두면 다음부터 고르기만 하면 돼요.</Text>
               {suggestion.data && suggestion.data.sent > 0 && (
                 <Callout
                   tone="informative"
@@ -148,11 +162,11 @@ export function TemplatesPage() {
         open={!!preview}
         onClose={() => setPreview(null)}
         title={preview?.name ?? ""}
-        description={preview?.description}
+        description={preview?.builtin ? preview.description : preview ? `${buttonCount(preview)} · 이 템플릿으로 만든 자동화 ${preview.usedCount}개` : undefined}
         footer={
           preview && (
             <HStack gap="x2" width="full" wrap>
-              {!preview.builtin && (
+              {!preview.builtin ? (
                 <>
                   <ActionButton variant="neutralWeak" onClick={() => remove(preview)}>
                     삭제
@@ -161,10 +175,9 @@ export function TemplatesPage() {
                     수정
                   </ActionButton>
                 </>
-              )}
-              {preview.builtin && (
-                <ActionButton variant="neutralWeak" onClick={() => nav(`/templates/new?fromBuiltin=${preview.id}`)}>
-                  복사해서 내 템플릿으로
+              ) : (
+                <ActionButton variant="neutralWeak" disabled={full} onClick={() => nav(`/templates/new?fromBuiltin=${preview.id}`)}>
+                  내 템플릿으로 복사
                 </ActionButton>
               )}
               <ActionButton variant="brandSolid" flexGrow onClick={() => nav(`/automations/new?template=${preview.id}`)}>
@@ -176,14 +189,19 @@ export function TemplatesPage() {
       >
         {preview && (
           <VStack gap="x3">
-            <div className="chips">
-              {features(preview).map((f) => (
-                <Badge key={f} size="medium" variant="weak" tone="informative">
-                  {f}
-                </Badge>
-              ))}
+            <DMPreview dm={preview.dm} username={state.account.username} />
+            <div className="feature-list">
+              {featureRows(preview).length === 0 ? (
+                <div>추가 기능 없이 DM만 보내요</div>
+              ) : (
+                featureRows(preview).map((r) => (
+                  <div key={r.text}>
+                    <Icon svg={r.icon} />
+                    {r.text}
+                  </div>
+                ))
+              )}
             </div>
-            <DMEditor dm={preview.dm} username={state.account.username} links={links} gateSwitch="hidden" />
           </VStack>
         )}
       </Modal>

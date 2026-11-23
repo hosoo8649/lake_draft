@@ -1,19 +1,24 @@
-import { IconChevronLeftLine, IconChevronRightLine, IconTrashcanLine } from "@karrotmarket/react-monochrome-icon";
-import { HStack, Text, VStack } from "@seed-design/react";
-import { useEffect, useState } from "react";
+import {
+  IconCheckmarkFill,
+  IconPaperclipLine,
+  IconTrashcanLine,
+} from "@karrotmarket/react-monochrome-icon";
+import { HStack, Icon, Text, VStack } from "@seed-design/react";
+import { useEffect, useRef, useState } from "react";
 import { ActionButton } from "seed-design/ui/action-button";
 import { Callout } from "seed-design/ui/callout";
-import { ChipTabsList, ChipTabsRoot, ChipTabsTrigger } from "seed-design/ui/chip-tabs";
 import { RadioGroup, RadioGroupItem } from "seed-design/ui/radio-group";
 import { SegmentedControl, SegmentedControlItem } from "seed-design/ui/segmented-control";
 import { cloneDeep, emptyButton, emptyCard } from "@shared/factory";
 import { LIMITS } from "@shared/limits";
-import type { CarouselCard, DMButton, DMMessage, LinkItem } from "@shared/types";
-import { isValidUrl, normalizeUrl } from "@shared/validation";
-import { api } from "../../lib/api";
+import type { CarouselCard, DMButton, DMContent, DMMessage, LinkItem, Post } from "@shared/types";
+import { isValidImageUrl, isValidUrl, normalizeUrl, validateMessage } from "@shared/validation";
+import { api, uploadImage } from "../../lib/api";
+import { useErrorToast } from "../feedback";
 import { TextArea, TextInput } from "../fields";
 import { Modal } from "../Modal";
 import { IconBtn } from "../ui";
+import { Conversation, type DMTab } from "./Bubble";
 
 /* ───────────── DM 글 수정 ───────────── */
 
@@ -41,7 +46,7 @@ export function TextEditSheet(props: {
   );
 }
 
-/* ───────────── 버튼 수정 ───────────── */
+/* ───────────── 링크 고르기 ───────────── */
 
 export function LinkPicker(props: { url: string; onChange: (url: string, linkId?: string) => void; links: LinkItem[]; linkId?: string }) {
   const [mode, setMode] = useState<"paste" | "mine">(props.linkId ? "mine" : "paste");
@@ -60,7 +65,7 @@ export function LinkPicker(props: { url: string; onChange: (url: string, linkId?
           error={props.url && !isValidUrl(normalizeUrl(props.url)) ? "올바른 링크 주소를 넣어 주세요" : undefined}
         />
       ) : props.links.length === 0 ? (
-        <Callout tone="neutral" description="저장한 링크가 없어요. 왼쪽 메뉴의 ‘내 링크’에서 자주 쓰는 링크를 저장해 두세요." />
+        <Callout tone="neutral" description="저장한 링크가 없어요. 메뉴의 ‘내 링크’에서 자주 쓰는 링크를 저장해 두세요." />
       ) : (
         <RadioGroup
           aria-label="내 링크"
@@ -90,6 +95,8 @@ export function LinkPicker(props: { url: string; onChange: (url: string, linkId?
   );
 }
 
+/* ───────────── 버튼 수정 (말풍선의 버튼을 눌렀을 때) ───────────── */
+
 export function ButtonEditSheet(props: {
   open: boolean;
   button: DMButton | null;
@@ -108,7 +115,7 @@ export function ButtonEditSheet(props: {
     <Modal
       open={props.open}
       onClose={props.onClose}
-      title={props.nameOnly ? "버튼 이름 수정" : "버튼 수정"}
+      title={props.nameOnly ? "버튼 이름 수정" : props.button ? "버튼 수정" : "버튼 추가"}
       description={props.nameOnly ? "팔로우 확인 버튼은 이름만 바꿀 수 있어요." : undefined}
       footer={
         <HStack gap="x2" width="full">
@@ -133,24 +140,17 @@ export function ButtonEditSheet(props: {
     >
       <VStack gap="x5">
         <TextInput label="버튼 이름" value={b.title} onChange={(title) => setB({ ...b, title })} max={LIMITS.buttonTitle} autoFocus />
-        {!props.nameOnly && (
-          <LinkPicker
-            url={b.url}
-            linkId={b.linkId}
-            links={props.links}
-            onChange={(url, linkId) => setB({ ...b, url, linkId })}
-          />
-        )}
+        {!props.nameOnly && <LinkPicker url={b.url} linkId={b.linkId} links={props.links} onChange={(url, linkId) => setB({ ...b, url, linkId })} />}
       </VStack>
     </Modal>
   );
 }
 
-/* ───────────── DM 전체 편집 ───────────── */
+/* ───────────── 버튼 목록 (다이얼로그 안에서 펼쳐서 편집) ───────────── */
 
 function ButtonsEditor(props: { buttons: DMButton[]; max: number; onChange: (b: DMButton[]) => void; links: LinkItem[] }) {
-  const [editing, setEditing] = useState<DMButton | null>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState<string | null>(null);
+  const set = (id: string, patch: Partial<DMButton>) => props.onChange(props.buttons.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   return (
     <VStack gap="x2">
       <HStack justify="space-between">
@@ -159,47 +159,68 @@ function ButtonsEditor(props: { buttons: DMButton[]; max: number; onChange: (b: 
           {props.buttons.length}/{props.max}
         </Text>
       </HStack>
-      {props.buttons.map((b, i) => (
-        <HStack key={b.id} gap="x2" className="card" style={{ padding: "10px 12px" }}>
-          <VStack grow gap="x0_5" style={{ minWidth: 0, cursor: "pointer" }} onClick={() => (setEditing(b), setOpen(true))}>
-            <Text textStyle="t4Medium">{b.title || "(이름 없음)"}</Text>
-            <Text textStyle="t2Regular" color={isValidUrl(b.url) ? "fg.neutralSubtle" : "fg.critical"} maxLines={1}>
-              {isValidUrl(b.url) ? b.url : "링크 설정 안 됨"}
-            </Text>
+      {props.buttons.map((b) =>
+        open === b.id ? (
+          <VStack key={b.id} gap="x3" className="card" style={{ padding: 14 }}>
+            <TextInput label="버튼 이름" value={b.title} onChange={(title) => set(b.id, { title })} max={LIMITS.buttonTitle} autoFocus />
+            <LinkPicker url={b.url} linkId={b.linkId} links={props.links} onChange={(url, linkId) => set(b.id, { url, linkId })} />
+            <HStack justify="flex-end" gap="x2">
+              <ActionButton size="small" variant="neutralWeak" onClick={() => props.onChange(props.buttons.filter((x) => x.id !== b.id))}>
+                삭제
+              </ActionButton>
+              <ActionButton
+                size="small"
+                variant="neutralSolid"
+                onClick={() => {
+                  set(b.id, { url: b.url.trim() ? normalizeUrl(b.url) : "" });
+                  setOpen(null);
+                }}
+              >
+                완료
+              </ActionButton>
+            </HStack>
           </VStack>
-          <IconBtn label="버튼 삭제" icon={<IconTrashcanLine />} onClick={() => props.onChange(props.buttons.filter((_, j) => j !== i))} />
-        </HStack>
-      ))}
-      {props.buttons.length < props.max && (
-        <ActionButton
-          variant="neutralOutline"
-          size="small"
-          onClick={() => {
-            setEditing(null);
-            setOpen(true);
-          }}
-        >
-          + 버튼 추가
-        </ActionButton>
+        ) : (
+          <div key={b.id} className="list-btn">
+            <Icon svg={<IconPaperclipLine />} size="x4" color="fg.neutralSubtle" />
+            <button type="button" className="list-btn__main" onClick={() => setOpen(b.id)} aria-label={`${b.title || "버튼"} 수정`}>
+              <Text as="p" textStyle="t4Bold">
+                {b.title || "(이름 없음)"}
+              </Text>
+              <Text as="p" textStyle="t2Regular" color={isValidUrl(b.url) ? "fg.neutralSubtle" : "fg.critical"} maxLines={1}>
+                {isValidUrl(b.url) ? b.url : "링크 설정 안 됨"}
+              </Text>
+            </button>
+            <IconBtn label="버튼 삭제" icon={<IconTrashcanLine />} onClick={() => props.onChange(props.buttons.filter((x) => x.id !== b.id))} />
+          </div>
+        ),
       )}
-      <ButtonEditSheet
-        open={open}
-        button={editing}
-        links={props.links}
-        onClose={() => setOpen(false)}
-        onSave={(nb) => {
-          const exists = props.buttons.some((x) => x.id === nb.id);
-          props.onChange(exists ? props.buttons.map((x) => (x.id === nb.id ? nb : x)) : [...props.buttons, nb]);
+      <button
+        type="button"
+        className="dashed-btn"
+        disabled={props.buttons.length >= props.max}
+        onClick={() => {
+          const nb = emptyButton("", "");
+          props.onChange([...props.buttons, nb]);
+          setOpen(nb.id);
         }}
-      />
+      >
+        + 버튼 추가
+      </button>
     </VStack>
   );
 }
+
+/* ───────────── 캐러셀 카드 ───────────── */
 
 function CardEditor(props: { card: CarouselCard; onChange: (c: CarouselCard) => void; links: LinkItem[] }) {
   const c = props.card;
   const [fillUrl, setFillUrl] = useState("");
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const onError = useErrorToast();
+
   const fill = async () => {
     const url = normalizeUrl(fillUrl);
     if (!isValidUrl(url)) return;
@@ -218,24 +239,69 @@ function CardEditor(props: { card: CarouselCard; onChange: (c: CarouselCard) => 
       setBusy(false);
     }
   };
+
   return (
     <VStack gap="x4">
       <HStack gap="x2" align="flex-end">
         <div style={{ flex: 1 }}>
-          <TextInput
-            label="링크로 카드 한 번에 채우기"
-            placeholder="https://"
-            value={fillUrl}
-            onChange={setFillUrl}
-            onEnter={fill}
-            description="링크의 제목·설명·이미지로 지금 카드를 채워요"
-          />
+          <TextInput label="링크로 카드 한 번에 채우기" placeholder="https://" value={fillUrl} onChange={setFillUrl} onEnter={fill} />
         </div>
-        <ActionButton variant="neutralWeak" loading={busy} onClick={fill} disabled={!fillUrl.trim()} style={{ marginBottom: 22 }}>
+        <ActionButton variant="neutralWeak" loading={busy} onClick={fill} disabled={!fillUrl.trim()}>
           불러오기
         </ActionButton>
       </HStack>
-      <TextInput label="이미지 주소" placeholder="https:// (1:1 비율 권장)" value={c.imageUrl} onChange={(imageUrl) => props.onChange({ ...c, imageUrl })} />
+      <VStack gap="x2">
+        <Text textStyle="t4Bold">이미지</Text>
+        <HStack gap="x3" align="center">
+          <div
+            className="c-card__img"
+            style={{ width: 72, height: 72, borderRadius: 12, ...(c.imageUrl ? { backgroundImage: `url("${c.imageUrl}")` } : {}) }}
+          >
+            {!c.imageUrl && "없음"}
+          </div>
+          <VStack gap="x1_5" grow>
+            <HStack gap="x2">
+              <ActionButton size="small" variant="neutralWeak" loading={uploading} onClick={() => fileRef.current?.click()}>
+                이미지 올리기
+              </ActionButton>
+              {c.imageUrl && (
+                <ActionButton size="small" variant="ghost" onClick={() => props.onChange({ ...c, imageUrl: "" })}>
+                  지우기
+                </ActionButton>
+              )}
+            </HStack>
+            <Text textStyle="t2Regular" color="fg.neutralSubtle">
+              1:1 비율을 권장해요 (세로로 긴 이미지는 잘려 보일 수 있어요) · 최대 8MB
+            </Text>
+          </VStack>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            hidden
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (!f) return;
+              setUploading(true);
+              try {
+                props.onChange({ ...c, imageUrl: await uploadImage(f) });
+              } catch (err) {
+                onError(err);
+              } finally {
+                setUploading(false);
+              }
+            }}
+          />
+        </HStack>
+        <TextInput
+          ariaLabel="이미지 주소"
+          placeholder="또는 이미지 주소 붙여넣기 (https://)"
+          value={c.imageUrl}
+          onChange={(imageUrl) => props.onChange({ ...c, imageUrl })}
+          error={c.imageUrl && !isValidImageUrl(c.imageUrl) ? "올바른 이미지 주소가 아니에요" : undefined}
+        />
+      </VStack>
       <TextInput label="제목" value={c.title} onChange={(title) => props.onChange({ ...c, title })} max={LIMITS.cardTitle} />
       <TextInput label="설명" value={c.subtitle} onChange={(subtitle) => props.onChange({ ...c, subtitle })} max={LIMITS.cardSubtitle} />
       <ButtonsEditor buttons={c.buttons} max={LIMITS.buttonsPerMessage} links={props.links} onChange={(buttons) => props.onChange({ ...c, buttons })} />
@@ -243,119 +309,238 @@ function CardEditor(props: { card: CarouselCard; onChange: (c: CarouselCard) => 
   );
 }
 
-export function FullEditSheet(props: {
+/** 카드 칩 — 끌어서 순서 바꾸기 */
+function CardChips(props: { cards: CarouselCard[]; current: number; onSelect: (i: number) => void; onReorder: (from: number, to: number) => void; onAdd?: () => void }) {
+  const [drag, setDrag] = useState<number | null>(null);
+  const [over, setOver] = useState<number | null>(null);
+  return (
+    <div className="chips" role="tablist" aria-label="카드">
+      {props.cards.map((c, i) => (
+        <button
+          key={c.id}
+          type="button"
+          role="tab"
+          aria-selected={i === props.current}
+          className="drag-chip"
+          data-dragging={drag === i}
+          data-over={over === i && drag !== i}
+          draggable
+          onDragStart={(e) => {
+            setDrag(i);
+            e.dataTransfer.effectAllowed = "move";
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setOver(i);
+          }}
+          onDragLeave={() => setOver(null)}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (drag !== null && drag !== i) props.onReorder(drag, i);
+            setDrag(null);
+            setOver(null);
+          }}
+          onDragEnd={() => {
+            setDrag(null);
+            setOver(null);
+          }}
+          onClick={() => props.onSelect(i)}
+          style={{
+            padding: "6px 14px",
+            borderRadius: 999,
+            border: "1px solid var(--seed-color-stroke-neutral-weak)",
+            background: i === props.current ? "var(--seed-color-bg-neutral-inverted)" : "var(--seed-color-bg-layer-default)",
+            color: i === props.current ? "var(--seed-color-fg-neutral-inverted)" : "var(--seed-color-fg-neutral)",
+            fontWeight: 700,
+            fontSize: 13,
+            cursor: "grab",
+          }}
+          title="끌어서 순서를 바꿀 수 있어요"
+        >
+          카드 {i + 1}
+        </button>
+      ))}
+      {props.onAdd && (
+        <button type="button" className="dashed-btn" style={{ width: "auto", padding: "6px 14px", fontSize: 13 }} onClick={props.onAdd}>
+          + 카드 추가 ({props.cards.length}/{LIMITS.cards})
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ───────────── DM 전체 편집 ───────────── */
+
+function tabOk(dm: DMContent, t: DMTab): boolean {
+  if (t === "gate") return !!dm.followGate.gateText.trim() && !!dm.followGate.gateButtonTitle.trim();
+  if (t === "nonFollower") return validateMessage(dm.followGate.nonFollower, { allowCarousel: false, maxButtons: 2, label: "" }).length === 0;
+  return validateMessage(dm.main, { allowCarousel: dm.followGate.enabled, maxButtons: 3, label: "" }).length === 0;
+}
+
+const TAB_LABEL: Record<DMTab, string> = { gate: "팔로우 확인", follower: "팔로워", nonFollower: "비팔로워" };
+
+export function FullEditModal(props: {
   open: boolean;
-  title: string;
-  message: DMMessage;
-  allowCarousel: boolean;
-  carouselHint?: string;
-  maxButtons: number;
-  links: LinkItem[];
+  dm: DMContent;
+  initialTab: DMTab;
   initialCard?: number;
+  links: LinkItem[];
+  username?: string;
+  post?: Post | null;
+  sampleComment?: string;
   onClose: () => void;
-  onSave: (m: DMMessage) => void;
+  onSave: (dm: DMContent) => void;
 }) {
-  const [m, setM] = useState<DMMessage>(cloneDeep(props.message));
+  const [dm, setDm] = useState<DMContent>(cloneDeep(props.dm));
+  const [tab, setTab] = useState<DMTab>(props.initialTab);
   const [cardIdx, setCardIdx] = useState(0);
   useEffect(() => {
     if (props.open) {
-      setM(cloneDeep(props.message));
+      setDm(cloneDeep(props.dm));
+      setTab(props.dm.followGate.enabled ? props.initialTab : "follower");
       setCardIdx(props.initialCard ?? 0);
     }
-  }, [props.open, props.message, props.initialCard]);
+  }, [props.open]);
 
-  const setCard = (i: number, c: CarouselCard) => setM({ ...m, cards: m.cards.map((x, j) => (j === i ? c : x)) });
-  const moveCard = (i: number, d: -1 | 1) => {
-    const j = i + d;
-    if (j < 0 || j >= m.cards.length) return;
-    const cards = [...m.cards];
-    [cards[i], cards[j]] = [cards[j], cards[i]];
-    setM({ ...m, cards });
-    setCardIdx(j);
-  };
+  const gate = dm.followGate.enabled;
+  const msgKey = tab === "nonFollower" ? "nonFollower" : "main";
+  const m: DMMessage = tab === "nonFollower" ? dm.followGate.nonFollower : dm.main;
+  const setM = (next: DMMessage) =>
+    setDm((d) => (msgKey === "nonFollower" ? { ...d, followGate: { ...d.followGate, nonFollower: next } } : { ...d, main: next }));
+  const allowCarousel = gate && tab === "follower";
+  const maxButtons = tab === "nonFollower" ? LIMITS.buttonsPerMessage - 1 : LIMITS.buttonsPerMessage;
 
   return (
     <Modal
       open={props.open}
       onClose={props.onClose}
-      title={props.title}
-      primary={{ label: "완료", onClick: () => (props.onSave(m), props.onClose()) }}
+      title="DM 전체 편집하기"
+      wide
+      primary={{ label: "완료", onClick: () => (props.onSave(dm), props.onClose()) }}
     >
-      <VStack gap="x5">
-        <VStack gap="x2">
-          <Text textStyle="t4Bold">DM 형식</Text>
-          <SegmentedControl
-            aria-label="DM 형식"
-            value={m.format}
-            onValueChange={(v) => {
-              if (v === "carousel" && !props.allowCarousel) return;
-              setM({ ...m, format: v as DMMessage["format"], cards: v === "carousel" && m.cards.length === 0 ? [emptyCard()] : m.cards });
-            }}
-          >
-            <SegmentedControlItem value="text">텍스트</SegmentedControlItem>
-            <SegmentedControlItem value="carousel" disabled={!props.allowCarousel}>
-              이미지 캐러셀
-            </SegmentedControlItem>
-          </SegmentedControl>
-          {!props.allowCarousel && props.carouselHint && (
-            <Text textStyle="t2Regular" color="fg.neutralSubtle">
-              {props.carouselHint}
-            </Text>
-          )}
-        </VStack>
-
-        {m.format === "text" ? (
-          <>
-            <TextArea label="메시지" value={m.text} onChange={(text) => setM({ ...m, text })} max={LIMITS.dmText} rows={6} />
-            <ButtonsEditor buttons={m.buttons} max={props.maxButtons} links={props.links} onChange={(buttons) => setM({ ...m, buttons })} />
-          </>
-        ) : (
-          <VStack gap="x4">
-            <HStack justify="space-between" gap="x2" wrap>
-              <ChipTabsRoot value={String(cardIdx)} onValueChange={(v) => setCardIdx(Number(v))} size="medium" variant="neutralSolid">
-                <ChipTabsList>
-                  {m.cards.map((c, i) => (
-                    <ChipTabsTrigger key={c.id} value={String(i)}>
-                      카드 {i + 1}
-                    </ChipTabsTrigger>
-                  ))}
-                </ChipTabsList>
-              </ChipTabsRoot>
-              {m.cards.length < LIMITS.cards && (
-                <ActionButton
-                  size="small"
-                  variant="neutralOutline"
-                  onClick={() => {
-                    setM({ ...m, cards: [...m.cards, emptyCard()] });
-                    setCardIdx(m.cards.length);
+      {gate && (
+        <div className="u-tabs" role="tablist" aria-label="받는 사람">
+          {(["gate", "follower", "nonFollower"] as DMTab[]).map((t) => (
+            <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
+              <span className="tab-check" data-ok={tabOk(dm, t)}>
+                <Icon svg={<IconCheckmarkFill />} />
+              </span>
+              {TAB_LABEL[t]}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="edit-grid">
+        <VStack gap="x5">
+          {tab === "gate" ? (
+            <>
+              <Text textStyle="t3Regular" color="fg.neutralMuted">
+                댓글을 남긴 팬이 팔로우 여부와 상관없이 가장 먼저 받는 DM이에요. 팔로우를 부탁하는 문구를 넣어 주세요.
+              </Text>
+              <TextArea
+                label="메시지"
+                value={dm.followGate.gateText}
+                onChange={(gateText) => setDm({ ...dm, followGate: { ...dm.followGate, gateText } })}
+                max={LIMITS.dmText}
+                rows={5}
+              />
+              <TextInput
+                label="팔로우 확인 버튼 이름"
+                description="이 버튼은 이름만 바꿀 수 있어요"
+                value={dm.followGate.gateButtonTitle}
+                onChange={(gateButtonTitle) => setDm({ ...dm, followGate: { ...dm.followGate, gateButtonTitle } })}
+                max={LIMITS.buttonTitle}
+              />
+            </>
+          ) : (
+            <>
+              <VStack gap="x2">
+                <SegmentedControl
+                  aria-label="DM 형식"
+                  value={m.format}
+                  onValueChange={(v) => {
+                    if (v === "carousel" && !allowCarousel) return;
+                    setM({ ...m, format: v as DMMessage["format"], cards: v === "carousel" && m.cards.length === 0 ? [emptyCard()] : m.cards });
                   }}
                 >
-                  + 카드 추가 ({m.cards.length}/{LIMITS.cards})
-                </ActionButton>
-              )}
-            </HStack>
-            {m.cards[cardIdx] && (
-              <>
-                <HStack gap="x1" justify="flex-end">
-                  <IconBtn label="앞으로" icon={<IconChevronLeftLine />} onClick={() => moveCard(cardIdx, -1)} />
-                  <IconBtn label="뒤로" icon={<IconChevronRightLine />} onClick={() => moveCard(cardIdx, 1)} />
-                  {m.cards.length > 1 && (
-                    <IconBtn
-                      label="카드 삭제"
-                      icon={<IconTrashcanLine />}
-                      onClick={() => {
-                        setM({ ...m, cards: m.cards.filter((_, j) => j !== cardIdx) });
-                        setCardIdx(Math.max(0, cardIdx - 1));
-                      }}
-                    />
+                  <SegmentedControlItem value="text">텍스트</SegmentedControlItem>
+                  <SegmentedControlItem value="carousel" disabled={!allowCarousel}>
+                    이미지 캐러셀
+                  </SegmentedControlItem>
+                </SegmentedControl>
+                {!allowCarousel && (
+                  <Text textStyle="t2Regular" color="fg.neutralSubtle">
+                    이미지 캐러셀은 팔로우 확인을 켰을 때 팔로워 DM에서만 쓸 수 있어요
+                  </Text>
+                )}
+              </VStack>
+              {m.format === "text" ? (
+                <>
+                  <TextArea label="메시지" value={m.text} onChange={(text) => setM({ ...m, text })} max={LIMITS.dmText} rows={5} />
+                  <ButtonsEditor buttons={m.buttons} max={maxButtons} links={props.links} onChange={(buttons) => setM({ ...m, buttons })} />
+                  {tab === "nonFollower" && (
+                    <Text textStyle="t2Regular" color="fg.neutralSubtle">
+                      비팔로워 DM에는 다시 확인 버튼이 자동으로 붙어서 버튼은 2개까지 넣을 수 있어요
+                    </Text>
                   )}
-                </HStack>
-                <CardEditor card={m.cards[cardIdx]} links={props.links} onChange={(c) => setCard(cardIdx, c)} />
-              </>
-            )}
-          </VStack>
-        )}
-      </VStack>
+                </>
+              ) : (
+                <VStack gap="x4">
+                  <CardChips
+                    cards={m.cards}
+                    current={cardIdx}
+                    onSelect={setCardIdx}
+                    onReorder={(from, to) => {
+                      const cards = [...m.cards];
+                      const [moved] = cards.splice(from, 1);
+                      cards.splice(to, 0, moved);
+                      setM({ ...m, cards });
+                      setCardIdx(to);
+                    }}
+                    onAdd={
+                      m.cards.length < LIMITS.cards
+                        ? () => {
+                            setM({ ...m, cards: [...m.cards, emptyCard()] });
+                            setCardIdx(m.cards.length);
+                          }
+                        : undefined
+                    }
+                  />
+                  <Text textStyle="t2Regular" color="fg.neutralSubtle">
+                    카드를 끌어서 순서를 바꿀 수 있어요
+                  </Text>
+                  {m.cards[cardIdx] && (
+                    <>
+                      <CardEditor card={m.cards[cardIdx]} links={props.links} onChange={(c) => setM({ ...m, cards: m.cards.map((x, j) => (j === cardIdx ? c : x)) })} />
+                      {m.cards.length > 1 && (
+                        <HStack>
+                          <ActionButton
+                            size="small"
+                            variant="neutralWeak"
+                            onClick={() => {
+                              setM({ ...m, cards: m.cards.filter((_, j) => j !== cardIdx) });
+                              setCardIdx(Math.max(0, cardIdx - 1));
+                            }}
+                          >
+                            이 카드 삭제
+                          </ActionButton>
+                        </HStack>
+                      )}
+                    </>
+                  )}
+                </VStack>
+              )}
+            </>
+          )}
+        </VStack>
+        <div className="edit-grid__preview">
+          <Conversation dm={dm} tab={tab} username={props.username} post={props.post} sampleComment={props.sampleComment} />
+          <Text as="p" textStyle="t2Regular" color="fg.neutralSubtle" style={{ marginTop: 8, textAlign: "center" }}>
+            DM은 짧고 분명할수록 클릭이 많아요. 길면 인스타그램에서 일부가 접혀 보여요.
+          </Text>
+        </div>
+      </div>
     </Modal>
   );
 }
+

@@ -19,12 +19,21 @@ export function Modal(props: {
   primary?: { label: string; onClick: () => void; disabled?: boolean; danger?: boolean; loading?: boolean };
   secondary?: { label: string; onClick: () => void };
   footer?: ReactNode;
+  /** 넓은 다이얼로그 (두 칸 편집 화면) */
+  wide?: boolean;
 }) {
   return (
     <ResponsiveDialogRoot open={props.open} onOpenChange={(o) => !o && props.onClose()}>
-      <ResponsiveDialogContent title={props.title} description={props.description}>
+      <ResponsiveDialogContent
+        title={props.title || undefined}
+        aria-label={typeof props.title === "string" && props.title ? undefined : "대화상자"}
+        description={props.description}
+        className={props.wide ? "wide-dialog" : undefined}
+      >
         <ResponsiveDialogBody>
-          <div style={{ maxHeight: "min(64vh, 640px)", overflowY: "auto", padding: "2px 2px 8px" }}>{props.children}</div>
+          <div style={{ maxHeight: props.wide ? "min(72vh, 760px)" : "min(64vh, 640px)", overflowY: "auto", padding: "2px 2px 8px" }}>
+            {props.children}
+          </div>
         </ResponsiveDialogBody>
         {(props.primary || props.footer) && (
           <ResponsiveDialogFooter>
