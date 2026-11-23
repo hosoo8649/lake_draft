@@ -7,6 +7,20 @@ export function normalizeKeyword(s: string): string {
   return s.normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+/** 글자 수 (이모지·결합 문자도 화면에 보이는 한 글자로) — 화면 카운터와 같은 기준 */
+const segmenter = typeof Intl !== "undefined" && "Segmenter" in Intl ? new Intl.Segmenter("ko", { granularity: "grapheme" }) : null;
+export function glen(s: string): number {
+  if (!segmenter) return [...s].length;
+  let n = 0;
+  for (const _ of segmenter.segment(s)) n++;
+  return n;
+}
+
+/** 공백을 무시한 비교 키 — 매칭·중복·충돌 검사가 모두 같은 기준을 써요 ("링크 주세요" = "링크주세요") */
+export function keywordKey(s: string): string {
+  return normalizeKeyword(s).replace(/\s/g, "");
+}
+
 /** 쉼표·줄바꿈으로 여러 개를 한 번에 입력 */
 export function splitKeywordInput(s: string): string[] {
   return s
@@ -16,10 +30,10 @@ export function splitKeywordInput(s: string): string[] {
 }
 
 export function keywordsTotalChars(list: string[]): number {
-  return list.reduce((sum, k) => sum + [...k].length, 0);
+  return list.reduce((sum, k) => sum + glen(k), 0);
 }
 
-const squash = (s: string) => normalizeKeyword(s).replace(/\s/g, "");
+const squash = keywordKey;
 
 /** 키워드가 문장 안에 있어도 일치 ("링크 주세요" ⊃ "링크") */
 export function keywordHit(trigger: Trigger, text: string): string | null {
@@ -73,23 +87,24 @@ export function validateMessage(m: DMMessage, rules: MessageRules): string[] {
     if (m.cards.length > LIMITS.cards) errs.push(`${p}카드는 ${LIMITS.cards}장까지 만들 수 있어요`);
     m.cards.forEach((c, i) => {
       if (!c.title.trim()) errs.push(`${p}${i + 1}번 카드 제목을 넣어 주세요`);
-      if ([...c.title].length > LIMITS.cardTitle) errs.push(`${p}${i + 1}번 카드 제목은 ${LIMITS.cardTitle}자까지예요`);
-      if ([...c.subtitle].length > LIMITS.cardSubtitle) errs.push(`${p}${i + 1}번 카드 설명은 ${LIMITS.cardSubtitle}자까지예요`);
+      if (glen(c.title) > LIMITS.cardTitle) errs.push(`${p}${i + 1}번 카드 제목은 ${LIMITS.cardTitle}자까지예요`);
+      if (glen(c.subtitle) > LIMITS.cardSubtitle) errs.push(`${p}${i + 1}번 카드 설명은 ${LIMITS.cardSubtitle}자까지예요`);
       if (c.imageUrl && !isValidImageUrl(c.imageUrl)) errs.push(`${p}${i + 1}번 카드 이미지 주소가 올바르지 않아요`);
       if (c.buttons.length > LIMITS.buttonsPerMessage) errs.push(`${p}${i + 1}번 카드 버튼은 ${LIMITS.buttonsPerMessage}개까지예요`);
       c.buttons.forEach((b) => {
         if (!b.title.trim()) errs.push(`${p}${i + 1}번 카드에 이름 없는 버튼이 있어요`);
+        if (glen(b.title) > LIMITS.buttonTitle) errs.push(`${p}버튼 이름은 ${LIMITS.buttonTitle}자까지예요`);
         if (!isValidUrl(b.url)) errs.push(`${p}버튼 링크를 설정해 주세요`);
       });
     });
     return dedupe(errs);
   }
   if (!m.text.trim()) errs.push(`${p}DM 문구를 넣어 주세요`);
-  if ([...m.text].length > LIMITS.dmText) errs.push(`${p}DM 문구는 ${LIMITS.dmText}자까지 쓸 수 있어요`);
+  if (glen(m.text) > LIMITS.dmText) errs.push(`${p}DM 문구는 ${LIMITS.dmText}자까지 쓸 수 있어요`);
   if (m.buttons.length > rules.maxButtons) errs.push(`${p}버튼은 ${rules.maxButtons}개까지 넣을 수 있어요`);
   m.buttons.forEach((b) => {
     if (!b.title.trim()) errs.push(`${p}버튼 이름을 넣어 주세요`);
-    if ([...b.title].length > LIMITS.buttonTitle) errs.push(`${p}버튼 이름은 ${LIMITS.buttonTitle}자까지예요`);
+    if (glen(b.title) > LIMITS.buttonTitle) errs.push(`${p}버튼 이름은 ${LIMITS.buttonTitle}자까지예요`);
     if (!isValidUrl(b.url)) errs.push(`${p}버튼 링크를 설정해 주세요`);
   });
   return dedupe(errs);
@@ -107,9 +122,9 @@ export function validateDM(dm: DMContent): string[] {
   );
   if (gate.enabled) {
     if (!gate.gateText.trim()) errs.push("팔로우 확인 DM 문구를 넣어 주세요");
-    if ([...gate.gateText].length > LIMITS.dmText) errs.push(`팔로우 확인 DM은 ${LIMITS.dmText}자까지예요`);
+    if (glen(gate.gateText) > LIMITS.dmText) errs.push(`팔로우 확인 DM은 ${LIMITS.dmText}자까지예요`);
     if (!gate.gateButtonTitle.trim()) errs.push("팔로우 확인 버튼 이름을 넣어 주세요");
-    if ([...gate.gateButtonTitle].length > LIMITS.buttonTitle) errs.push(`버튼 이름은 ${LIMITS.buttonTitle}자까지예요`);
+    if (glen(gate.gateButtonTitle) > LIMITS.buttonTitle) errs.push(`버튼 이름은 ${LIMITS.buttonTitle}자까지예요`);
     errs.push(
       ...validateMessage(gate.nonFollower, {
         allowCarousel: false,
@@ -144,11 +159,15 @@ export function validateTrigger(trigger: Trigger): string[] {
     errs.push(`키워드는 모두 합쳐 ${LIMITS.keywordsTotalChars}자까지 넣을 수 있어요`);
   const seen = new Set<string>();
   for (const k of trigger.keywords) {
-    const n = normalizeKeyword(k);
+    const n = keywordKey(k);
+    if (!n) {
+      errs.push("빈 키워드는 넣을 수 없어요");
+      continue;
+    }
     if (seen.has(n)) errs.push(`이미 넣은 키워드예요: ${k}`);
     seen.add(n);
   }
-  return errs;
+  return [...new Set(errs)];
 }
 
 /* ───────────── 같은 게시물 충돌 규칙 ───────────── */
@@ -190,10 +209,10 @@ export function findConflicts(candidate: AutomationLike, others: AutomationLike[
     const used = new Map<string, string>();
     for (const o of samePost) {
       if (o.trigger.type !== "keyword") continue;
-      for (const k of o.trigger.keywords) used.set(normalizeKeyword(k), k);
+      for (const k of o.trigger.keywords) used.set(keywordKey(k), k);
     }
     for (const k of candidate.trigger.keywords) {
-      if (used.has(normalizeKeyword(k))) errs.push(`이미 이 게시물에 걸린 키워드예요: ${k}`);
+      if (used.has(keywordKey(k))) errs.push(`이미 이 게시물에 걸린 키워드예요: ${k}`);
     }
   }
   return dedupe(errs);
@@ -205,10 +224,10 @@ export function keywordAddError(
   current: string[],
   usedOnPost: string[],
 ): string | null {
-  const n = normalizeKeyword(keyword);
+  const n = keywordKey(keyword);
   if (!n) return null;
-  if (current.some((k) => normalizeKeyword(k) === n)) return "이미 넣은 키워드예요";
-  if (usedOnPost.some((k) => normalizeKeyword(k) === n)) return "이미 이 게시물에 걸린 키워드예요";
+  if (current.some((k) => keywordKey(k) === n)) return "이미 넣은 키워드예요";
+  if (usedOnPost.some((k) => keywordKey(k) === n)) return "이미 이 게시물에 걸린 키워드예요";
   if (keywordsTotalChars([...current, keyword]) > LIMITS.keywordsTotalChars)
     return `키워드는 모두 합쳐 ${LIMITS.keywordsTotalChars}자까지 넣을 수 있어요`;
   return null;

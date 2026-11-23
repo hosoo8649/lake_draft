@@ -13,7 +13,8 @@ export class ApiError extends Error {
 export async function api<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method: init.method ?? (init.body ? "POST" : "GET"),
-    headers: init.body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    // X-AutoDM: 다른 웹사이트가 몰래 보내는 요청과 구분하는 표시
+    headers: { "X-AutoDM": "1", ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}) },
     body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
   });
   const json = await res.json().catch(() => ({}));
@@ -83,7 +84,7 @@ export function useApi<T>(path: string | null, opts: { live?: boolean } = { live
 
 /** 캐러셀 이미지 올리기 → /uploads/... 주소 */
 export async function uploadImage(file: File): Promise<string> {
-  const res = await fetch("/api/uploads", { method: "POST", headers: { "Content-Type": file.type }, body: file });
+  const res = await fetch("/api/uploads", { method: "POST", headers: { "Content-Type": file.type, "X-AutoDM": "1" }, body: file });
   const json = (await res.json().catch(() => ({}))) as { url?: string; error?: string; details?: string[] };
   if (!res.ok || !json.url) throw new ApiError(json.error ?? "이미지를 올리지 못했어요", json.details ?? [json.error ?? "이미지를 올리지 못했어요"], res.status);
   return json.url;

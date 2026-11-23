@@ -110,8 +110,14 @@ describe("인스타그램 웹훅", () => {
 describe("링크 미리보기 보호", () => {
   it("사설·로컬 주소는 막는다", async () => {
     const { isPrivateAddress, fetchPublic } = await import("../server/safeFetch");
-    for (const ip of ["127.0.0.1", "10.1.2.3", "192.168.0.1", "172.20.0.1", "169.254.169.254", "::1", "fd00::1", "::ffff:127.0.0.1"])
-      expect(isPrivateAddress(ip)).toBe(true);
+    for (const ip of [
+      "127.0.0.1", "10.1.2.3", "192.168.0.1", "172.20.0.1", "169.254.169.254", "0.0.0.0", "::1", "fd00::1",
+      "::ffff:127.0.0.1", "::ffff:7f00:1", "::7f00:1", "::ffff:a9fe:a9fe", "64:ff9b::7f00:1", "fe80::1", "[::1]",
+    ])
+      expect(isPrivateAddress(ip), ip).toBe(true);
+    expect(isPrivateAddress("2606:4700::1111")).toBe(false);
+    await expect(fetchPublic("http://[::ffff:7f00:1]:8787/")).rejects.toThrow();
+    await expect(fetchPublic("http://localhost:8787/api/state")).rejects.toThrow();
     expect(isPrivateAddress("8.8.8.8")).toBe(false);
     await expect(fetchPublic("http://127.0.0.1:8787/api/state")).rejects.toThrow();
     await expect(fetchPublic("file:///etc/passwd")).rejects.toThrow();

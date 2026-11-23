@@ -39,6 +39,14 @@ export interface QueueItem {
   createdAt: number;
 }
 
+export interface PendingFollowCheck {
+  automationId: string;
+  userId: string;
+  username: string;
+  attempts: number;
+  notBefore: number;
+}
+
 export interface DB {
   version: 1;
   account: AccountPrivate | null;
@@ -52,12 +60,17 @@ export interface DB {
   deliveries: DeliveryLog[];
   clicks: ClickLog[];
   queue: QueueItem[];
+  pendingChecks: PendingFollowCheck[];
   settings: Settings;
   demo: DemoState;
   retiredCodes: string[];
   replyCursor: Record<string, number>;
   /** Instagram 로그인 보안 확인 값 */
   oauthState?: string;
+  /** Instagram 로그인 뒤 돌아갈 화면 주소 */
+  oauthReturn?: string;
+  /** 바깥(터널)에서 접속할 때 쓰는 관리자 비밀번호·세션 키 */
+  auth?: { password: string; secret: string };
 }
 
 export function emptyDB(): DB {
@@ -74,6 +87,7 @@ export function emptyDB(): DB {
     deliveries: [],
     clicks: [],
     queue: [],
+    pendingChecks: [],
     settings: {
       dmPaused: false,
       replyPaused: false,
@@ -96,11 +110,16 @@ export class Store {
   }
 
   private load(file: string): DB {
+    if (!fs.existsSync(file)) return emptyDB();
+    const raw = fs.readFileSync(file, "utf8");
     try {
-      const raw = fs.readFileSync(file, "utf8");
       const parsed = JSON.parse(raw) as Partial<DB>;
       return { ...emptyDB(), ...parsed, settings: { ...emptyDB().settings, ...parsed.settings } };
-    } catch {
+    } catch (e) {
+      // 파일이 깨졌으면 덮어쓰기 전에 따로 보관해 둬요 (토큰·자동화·기록을 잃지 않도록)
+      const backup = `${file}.corrupt-${Date.now()}`;
+      fs.copyFileSync(file, backup);
+      console.error(`\n  ⚠ 데이터 파일을 읽지 못했어요 (${(e as Error).message}). 원본을 ${backup} 에 보관하고 빈 상태로 시작해요.\n`);
       return emptyDB();
     }
   }

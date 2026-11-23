@@ -5,6 +5,10 @@ const num = (v: string | undefined, d: number) => (v && !Number.isNaN(Number(v))
 
 export const config = {
   port: num(process.env.PORT, 8787),
+  /** 기본은 이 PC에서만 접속 (다른 기기에서 열려면 HOST=0.0.0.0) */
+  host: process.env.HOST ?? "127.0.0.1",
+  /** 바깥(터널·다른 기기)에서 접속할 때 쓰는 관리자 비밀번호. 비우면 자동으로 만들어 콘솔에 보여 줘요 */
+  adminPassword: process.env.ADMIN_PASSWORD ?? "",
   /** 데이터 파일 경로 */
   dataFile: path.resolve(process.env.DATA_FILE ?? "data/db.json"),
   /** Meta(Instagram) 앱 설정 — 비어 있으면 데모 모드로만 동작 */

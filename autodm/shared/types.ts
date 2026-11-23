@@ -134,6 +134,8 @@ export interface BatchInfo {
   startedAt: number;
   finishedAt?: number;
   total: number;
+  /** 지난 댓글을 불러오는 중 (아직 대기열에 넣기 전) */
+  fetching?: boolean;
 }
 
 export interface Automation {

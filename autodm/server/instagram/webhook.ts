@@ -33,7 +33,7 @@ interface MessagingEvent {
     mid?: string;
     text?: string;
     is_echo?: boolean;
-    attachments?: { type?: string; payload?: { url?: string; ig_post_media_id?: string; id?: string } }[];
+    attachments?: { type?: string; payload?: { url?: string; ig_post_media_id?: string; id?: string; reel_video_id?: string } }[];
   };
   postback?: { mid?: string; title?: string; payload?: string };
   read?: { mid?: string; watermark?: number };
@@ -71,18 +71,24 @@ export async function dispatchWebhook(
       if (!userId) continue;
       if (ev.message?.is_echo) continue;
       if (ev.postback?.payload) {
-        await engine.handlePostback(userId, await resolveUsername(userId), ev.postback.payload);
+        await engine.handlePostback(userId, await resolveUsername(userId), ev.postback.payload, ev.postback.mid);
         handled++;
       } else if (ev.read) {
         engine.handleRead(userId, ev.timestamp ?? Date.now());
         handled++;
       } else if (ev.message) {
-        const share = ev.message.attachments?.find((a) => a.type === "share" || a.type === "ig_post");
-        await engine.handleMessage(userId, await resolveUsername(userId), {
-          text: ev.message.text,
-          sharedPostId: share?.payload?.ig_post_media_id ?? share?.payload?.id,
-          sharedUrl: share?.payload?.url,
-        });
+        // 게시물·릴스 공유 (첨부 종류 이름이 바뀌어도 받도록 넓게 확인)
+        const share = ev.message.attachments?.find((a) => ["share", "ig_post", "ig_reel", "reel"].includes(a.type ?? ""));
+        await engine.handleMessage(
+          userId,
+          await resolveUsername(userId),
+          {
+            text: ev.message.text,
+            sharedPostId: share?.payload?.ig_post_media_id ?? share?.payload?.reel_video_id ?? share?.payload?.id,
+            sharedUrl: share?.payload?.url,
+          },
+          ev.message.mid,
+        );
         handled++;
       }
     }

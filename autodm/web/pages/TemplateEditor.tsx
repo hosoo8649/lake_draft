@@ -12,7 +12,7 @@ import { Conversation } from "../components/dm/Bubble";
 import { DMStage } from "../components/dm/DMEditor";
 import { useErrorToast, useToast } from "../components/feedback";
 import { TextInput } from "../components/fields";
-import { Loading, PageHeader } from "../components/ui";
+import { Loading, PageHeader, FooterBar } from "../components/ui";
 import { ApiError, api, useApi } from "../lib/api";
 import { useAppState } from "../lib/appState";
 import { useLeaveGuard } from "../lib/useLeaveGuard";
@@ -158,11 +158,11 @@ export function TemplateEditorPage() {
               },
             }}
           />
-          <div className="footer-bar">
+          <FooterBar>
             <ActionButton variant="brandSolid" size="large" onClick={() => setStep(2)}>
               다음
             </ActionButton>
-          </div>
+          </FooterBar>
         </VStack>
       )}
 
@@ -170,14 +170,14 @@ export function TemplateEditorPage() {
         <VStack gap="x4" style={{ maxWidth: 480, margin: "0 auto" }}>
           <DMStage dm={dm} onChange={(d) => (setDm(d), touch())} username={state.account.username} links={links} hideGateSwitch />
           <Callout tone="neutral" description="버튼 링크는 비워 둬도 템플릿으로 저장할 수 있어요. 자동화를 만들 때 넣으면 돼요." />
-          <div className="footer-bar">
+          <FooterBar>
             <ActionButton variant="neutralWeak" size="large" onClick={() => setStep(1)}>
               이전
             </ActionButton>
             <ActionButton variant="brandSolid" size="large" disabled={dm.main.format === "text" && !dm.main.text.trim()} onClick={() => setStep(3)}>
               다음
             </ActionButton>
-          </div>
+          </FooterBar>
         </VStack>
       )}
 
@@ -196,14 +196,14 @@ export function TemplateEditorPage() {
             <Text textStyle="t3Regular" color="fg.neutralSubtle">
               템플릿에는 게시물, 댓글 조건(키워드), 발송 시점은 담기지 않아요.
             </Text>
-            <div className="footer-bar" style={{ justifyContent: "flex-start" }}>
+            <FooterBar style={{ justifyContent: "flex-start" }}>
               <ActionButton variant="neutralWeak" size="large" onClick={() => setStep(2)}>
                 이전
               </ActionButton>
               <ActionButton variant="brandSolid" size="large" loading={saving} disabled={!name.trim()} onClick={save}>
                 저장
               </ActionButton>
-            </div>
+            </FooterBar>
           </VStack>
           <div className="split__aside">
             <VStack gap="x3">

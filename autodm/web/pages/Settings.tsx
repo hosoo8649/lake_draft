@@ -5,11 +5,12 @@ import { ActionButton } from "seed-design/ui/action-button";
 import { Callout } from "seed-design/ui/callout";
 import { Switch } from "seed-design/ui/switch";
 import type { Settings } from "@shared/types";
-import { useErrorToast, useToast } from "../components/feedback";
+import { useConfirm, useErrorToast, useToast } from "../components/feedback";
 import { TextInput } from "../components/fields";
 import { Loading, PageHeader, Section } from "../components/ui";
-import { api } from "../lib/api";
+import { api, useApi } from "../lib/api";
 import { useAppState } from "../lib/appState";
+import { copyText } from "../lib/format";
 
 function Row(props: { title: string; description: string; children: React.ReactNode }) {
   return (
@@ -117,6 +118,8 @@ export function SettingsPage() {
           </VStack>
         </Section>
 
+        <AdminPasswordSection />
+
         <Section title="계정 · 도움말">
           <VStack gap="x2">
             <Row title="계정" description={`@${state.account.username} · ${state.account.mode === "demo" ? "데모" : "인스타그램 연동"} — 연동 상태 확인, 다시 연동, 해지`}>
@@ -155,5 +158,62 @@ export function SettingsPage() {
         </Section>
       </VStack>
     </div>
+  );
+}
+
+function AdminPasswordSection() {
+  const info = useApi<{ password: string | null; fromEnv: boolean }>("/admin-password", { live: false });
+  const [show, setShow] = useState(false);
+  const toast = useToast();
+  const onError = useErrorToast();
+  const confirm = useConfirm();
+  return (
+    <Section
+      title="관리자 비밀번호"
+      description="이 PC의 브라우저에서는 필요 없어요. 터널 주소나 다른 기기에서 관리 화면을 열 때 이 비밀번호로 로그인해요."
+    >
+      {info.data?.fromEnv ? (
+        <Text textStyle="t4Regular" color="fg.neutralMuted">
+          .env의 ADMIN_PASSWORD로 정해져 있어요.
+        </Text>
+      ) : (
+        <HStack gap="x2" wrap align="center">
+          <span className="code-chip" style={{ letterSpacing: 1, fontSize: 15, cursor: "default" }}>
+            {info.data?.password ? (show ? info.data.password : "••••••••••••") : "…"}
+          </span>
+          <ActionButton size="small" variant="neutralWeak" onClick={() => setShow(!show)}>
+            {show ? "숨기기" : "보기"}
+          </ActionButton>
+          <ActionButton
+            size="small"
+            variant="neutralWeak"
+            onClick={async () => info.data?.password && (await copyText(info.data.password)) && toast("비밀번호를 복사했어요")}
+          >
+            복사
+          </ActionButton>
+          <ActionButton
+            size="small"
+            variant="ghost"
+            onClick={async () => {
+              const ok = await confirm({
+                title: "비밀번호를 새로 만들까요?",
+                description: "바깥에서 로그인해 둔 브라우저는 모두 로그아웃돼요.",
+                confirmLabel: "새로 만들기",
+              });
+              if (!ok) return;
+              try {
+                info.setData(await api("/admin-password/rotate", { body: {} }));
+                setShow(true);
+                toast("새 비밀번호를 만들었어요", "positive");
+              } catch (e) {
+                onError(e);
+              }
+            }}
+          >
+            새로 만들기
+          </ActionButton>
+        </HStack>
+      )}
+    </Section>
   );
 }

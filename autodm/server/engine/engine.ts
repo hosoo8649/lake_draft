@@ -2,7 +2,7 @@ import { uid } from "../../shared/factory";
 import { DAY, HOUR, LIMITS, isCodeFormat, normalizeCode } from "../../shared/limits";
 import { replyPool } from "../../shared/presets";
 import type { Automation, Comment, DeliveryKind, DeliveryLog, DeliveryOrigin } from "../../shared/types";
-import { keywordHit } from "../../shared/validation";
+import { findConflicts, keywordHit } from "../../shared/validation";
 import type { Gateway, OutgoingMessage } from "../instagram/gateway";
 import type { QueueItem, Store } from "../store";
 import {
@@ -16,6 +16,11 @@ import {
 
 const MAX_ATTEMPTS = 5;
 const REPLY_LIMIT_PER_HOUR = 60;
+/** 비팔로워가 확인 버튼을 연달아 눌러도 이 간격 안에는 한 번만 답해요 */
+const RECHECK_COOLDOWN = 30_000;
+/** 팔로우 여부를 확인하지 못했을 때 다시 시도하는 횟수·간격 */
+const FOLLOW_CHECK_RETRIES = 5;
+const FOLLOW_CHECK_DELAY = 60_000;
 
 export interface EngineOptions {
   now?: () => number;
@@ -115,11 +120,13 @@ export class Engine {
     if (!post) return;
     for (const a of pending) {
       // 자동화를 만든 뒤에 올라온 게시물에 첫 댓글이 달리면 연결
-      if (post.timestamp >= a.createdAt - 60_000) {
-        a.postId = postId;
-        a.boundAt = this.now();
-        a.updatedAt = this.now();
-      }
+      if (post.timestamp < a.createdAt - 60_000) continue;
+      // 그 게시물에 이미 자동화가 있으면 게시물 규칙(모든 댓글 1개·키워드 중복·발송 방식 1개)을 지켜야 연결해요
+      const conflicts = findConflicts({ ...a, postId, nextPost: false }, this.db.automations);
+      if (conflicts.length) continue;
+      a.postId = postId;
+      a.boundAt = this.now();
+      a.updatedAt = this.now();
     }
   }
 
@@ -170,12 +177,55 @@ export class Engine {
   }
 
   /** 팔로우 확인 버튼 (postback) */
-  async handlePostback(userId: string, username: string, payload: string): Promise<{ follower?: boolean; skipped?: string }> {
+  /** 웹훅이 같은 이벤트를 다시 보내도 한 번만 처리해요 (메시지 id 기준) */
+  private seenEvents = new Map<string, number>();
+  private firstTime(eventId?: string): boolean {
+    if (!eventId) return true;
+    const now = this.now();
+    if (this.seenEvents.has(eventId)) return false;
+    this.seenEvents.set(eventId, now);
+    if (this.seenEvents.size > 5000) {
+      for (const [k, t] of this.seenEvents) if (now - t > DAY) this.seenEvents.delete(k);
+    }
+    return true;
+  }
+
+  private hasDelivery(automationId: string, userId: string, kind: DeliveryKind, statuses: DeliveryLog["status"][], since = 0) {
+    return this.db.deliveries.some(
+      (d) => d.automationId === automationId && d.userId === userId && d.kind === kind && statuses.includes(d.status) && d.createdAt >= since,
+    );
+  }
+
+  /** 팔로우 확인 버튼 (postback) */
+  async handlePostback(
+    userId: string,
+    username: string,
+    payload: string,
+    eventId?: string,
+  ): Promise<{ follower?: boolean; skipped?: string }> {
     if (!payload.startsWith(FOLLOW_CHECK_PREFIX)) return { skipped: "unknown-payload" };
+    if (!this.firstTime(eventId)) return { skipped: "duplicate" };
     const a = this.db.automations.find((x) => x.id === payload.slice(FOLLOW_CHECK_PREFIX.length));
     if (!a) return { skipped: "automation-deleted" };
     if (this.db.settings.dmPaused) return { skipped: "paused" };
+    // 이미 본 DM을 받았거나 보낼 예정이면 다시 보내지 않아요
+    if (this.hasDelivery(a.id, userId, "main", ["sent", "queued", "retrying"])) return { follower: true, skipped: "already-sent" };
+    if (this.db.pendingChecks.some((p) => p.automationId === a.id && p.userId === userId)) return { skipped: "checking" };
     const follower = await this.gateway().isFollower(userId);
+    if (follower === null) {
+      // 인스타그램 오류로 확인하지 못했어요 → 잠시 뒤 다시 확인 (비팔로워로 넘겨짚지 않아요)
+      this.db.pendingChecks.push({ automationId: a.id, userId, username, attempts: 1, notBefore: this.now() + FOLLOW_CHECK_DELAY });
+      this.store.changed();
+      return { skipped: "checking" };
+    }
+    if (!follower && this.hasDelivery(a.id, userId, "nonFollower", ["sent", "queued", "retrying"], this.now() - RECHECK_COOLDOWN))
+      return { follower: false, skipped: "cooldown" };
+    this.enqueueFollowResult(a, userId, username, follower);
+    await this.tick();
+    return { follower };
+  }
+
+  private enqueueFollowResult(a: Automation, userId: string, username: string, follower: boolean): void {
     this.enqueue(a, {
       kind: follower ? "main" : "nonFollower",
       origin: "postback",
@@ -185,8 +235,38 @@ export class Engine {
       priority: true,
     });
     this.store.changed();
-    await this.tick();
-    return { follower: !!follower };
+  }
+
+  /** 팔로우 여부를 다시 확인 (tick마다) */
+  private async retryFollowChecks(): Promise<void> {
+    const due = this.db.pendingChecks.filter((p) => p.notBefore <= this.now());
+    for (const p of due) {
+      const a = this.db.automations.find((x) => x.id === p.automationId);
+      this.db.pendingChecks = this.db.pendingChecks.filter((x) => x !== p);
+      if (!a) continue;
+      const follower = await this.gateway().isFollower(p.userId);
+      if (follower !== null) {
+        this.enqueueFollowResult(a, p.userId, p.username, follower);
+        continue;
+      }
+      if (p.attempts + 1 >= FOLLOW_CHECK_RETRIES) {
+        this.db.deliveries.push({
+          id: uid("dl"),
+          automationId: a.id,
+          postId: a.postId,
+          userId: p.userId,
+          username: p.username,
+          kind: "main",
+          origin: "postback",
+          status: "failed",
+          error: "팔로우 여부를 확인하지 못했어요 (인스타그램 오류). 팬이 버튼을 다시 누르면 다시 확인해요",
+          createdAt: this.now(),
+        });
+      } else {
+        this.db.pendingChecks.push({ ...p, attempts: p.attempts + 1, notBefore: this.now() + FOLLOW_CHECK_DELAY * (p.attempts + 1) });
+      }
+      this.store.changed();
+    }
   }
 
   /** 팬이 보낸 DM — 게시물 공유 또는 4자리 코드 */
@@ -194,14 +274,16 @@ export class Engine {
     userId: string,
     username: string,
     msg: { text?: string; sharedPostId?: string; sharedUrl?: string },
+    eventId?: string,
   ): Promise<{ automationId?: string; skipped?: string }> {
     if (this.isOwn(userId, username)) return { skipped: "own" };
+    if (!this.firstTime(eventId)) return { skipped: "duplicate" };
     let a: Automation | undefined;
     let origin: DeliveryOrigin = "code";
     if (msg.sharedPostId || msg.sharedUrl) {
+      const norm = (u: string) => u.split(/[?#]/)[0].replace(/\/+$/, "").replace(/^https?:\/\/(www\.)?/, "");
       const postId =
-        msg.sharedPostId ??
-        this.db.posts.find((p) => p.permalink && msg.sharedUrl && msg.sharedUrl.startsWith(p.permalink.replace(/\/$/, "")))?.id;
+        msg.sharedPostId ?? this.db.posts.find((p) => p.permalink && msg.sharedUrl && norm(msg.sharedUrl) === norm(p.permalink))?.id;
       if (postId) {
         a = this.db.automations.find(
           (x) => x.postId === postId && x.extras.shareReply && this.acceptsDirectTriggers(x),
@@ -279,12 +361,15 @@ export class Engine {
     }
     // 웹훅으로 이미 받은 댓글과 합쳐요
     for (const c of comments) if (!this.db.comments.some((x) => x.id === c.id)) this.db.comments.push(c);
-    const already = new Set(
-      this.db.deliveries
-        .filter((d) => d.postId === a.postId && d.commentId && (d.kind === "gate" || d.kind === "main") && d.status !== "failed")
-        .map((d) => d.commentId!),
+    const reached = this.db.deliveries.filter(
+      (d) =>
+        d.postId === a.postId &&
+        d.kind !== "reply" &&
+        (d.status === "sent" || d.status === "queued" || d.status === "retrying"),
     );
-    const seenUsers = new Set<string>();
+    // 이미 DM을 받은(또는 받을) 댓글과 사람은 빼요 — 취소·실패한 발송은 받은 걸로 치지 않아요
+    const already = new Set(reached.filter((d) => d.commentId).map((d) => d.commentId!));
+    const seenUsers = new Set<string>(reached.map((d) => d.userId));
     const targets = [...comments]
       .sort((x, y) => x.createdAt - y.createdAt)
       .filter((c) => {
@@ -307,7 +392,9 @@ export class Engine {
         notBefore: this.now(),
       });
     }
-    a.batch = { startedAt: this.now(), total: targets.length };
+    // 다시 이어서 불러온 경우까지 포함해 이 자동화의 일괄 발송 전체 수
+    const total = this.db.deliveries.filter((d) => d.automationId === a.id && d.origin === "batch").length;
+    a.batch = { startedAt: a.batch?.startedAt ?? this.now(), total };
     this.store.changed();
     return targets.length;
   }
@@ -410,6 +497,7 @@ export class Engine {
     this.ticking = true;
     try {
       this.fireSchedules();
+      await this.retryFollowChecks();
       await this.drainQueue();
       this.finishBatches();
     } finally {
@@ -427,9 +515,19 @@ export class Engine {
     }
   }
 
+  /** 서버가 꺼졌다 켜져도 끝나지 않은 일괄 발송을 이어서 해요 */
+  async resumeBatches(): Promise<void> {
+    for (const a of this.db.automations) {
+      if (a.sendMode === "batch" && (!a.batch || a.batch.fetching)) {
+        if (!a.batch) a.batch = { startedAt: this.now(), total: 0, fetching: true };
+        await this.startBatch(a).catch(() => {});
+      }
+    }
+  }
+
   private finishBatches(): void {
     for (const a of this.db.automations) {
-      if (a.sendMode === "batch" && a.batch && !a.batch.finishedAt && this.queuedCount(a.id) === 0) {
+      if (a.sendMode === "batch" && a.batch && !a.batch.fetching && !a.batch.finishedAt && this.queuedCount(a.id) === 0) {
         a.batch.finishedAt = this.now();
         a.sendMode = "immediate"; // 다 보내면 즉시 발송 자동화로 바뀌어요
         a.updatedAt = this.now();

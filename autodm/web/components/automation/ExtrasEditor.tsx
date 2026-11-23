@@ -323,6 +323,13 @@ export function ExtrasEditor(props: {
           )}
         </div>
       )}
+      {e.codeReply && props.code === undefined && props.onChange && (
+        <div className="guide-box">
+          <Text textStyle="t3Regular" color="fg.neutralMuted">
+            DM 코드는 저장하면 새로 만들어져요. 저장한 뒤 자동화 상세에서 코드와 팬 안내 문구를 확인·복사할 수 있어요.
+          </Text>
+        </div>
+      )}
       <ReplyPickerModal open={pickerOpen} value={r} onClose={() => setPickerOpen(false)} onSave={(v) => setReply(v)} />
     </VStack>
   );

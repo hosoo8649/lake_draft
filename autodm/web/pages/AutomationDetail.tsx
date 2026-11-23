@@ -97,7 +97,12 @@ export function AutomationDetailPage() {
             <ActionButton variant="neutralWeak" disabled={sending} onClick={() => nav(`/automations/${a.id}/edit`)}>
               수정
             </ActionButton>
-            <ActionButton variant="neutralWeak" disabled={!canDuplicate} onClick={() => act.duplicate(a)} title={canDuplicate ? undefined : "예약 발송은 복제할 수 없어요"}>
+            <ActionButton
+              variant="neutralWeak"
+              aria-disabled={!canDuplicate}
+              style={canDuplicate ? undefined : { opacity: 0.45 }}
+              onClick={() => (canDuplicate ? act.duplicate(a) : toast("예약 발송 자동화는 복제할 수 없어요. 새 자동화로 만들어 주세요"))}
+            >
               복제
             </ActionButton>
             <ActionButton variant="neutralWeak" onClick={() => act.saveAsTemplate(a)}>

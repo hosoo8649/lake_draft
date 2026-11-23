@@ -15,6 +15,7 @@ import type {
 } from "../shared/types";
 import {
   findConflicts,
+  glen,
   isValidUrl,
   keywordHit,
   normalizeUrl,
@@ -88,14 +89,28 @@ export class Services {
     return this.newCode();
   }
 
-  private validateSchedule(s: AutomationInput["schedule"]): string[] {
-    if (!s) return ["예약 시각을 골라 주세요"];
+  /**
+   * 예약 시각: 지금 이후, 30분 단위, 7일 이내.
+   * 이미 모아 둔 댓글이 있으면 가장 이른 댓글 + 7일 안이어야 해요 (인스타그램은 7일 지난 댓글에 답장할 수 없어요)
+   */
+  private validateSchedule(s: AutomationInput["schedule"], earliestHeld?: number): string[] {
+    if (!s || typeof s.at !== "number" || !Number.isFinite(s.at)) return ["예약 시각을 골라 주세요"];
     const now = this.now();
     if (s.at <= now) return ["예약 시각은 지금 이후로 골라 주세요"];
-    if (s.at > now + LIMITS.scheduleMaxDays * DAY + 30 * MINUTE) return [`예약은 ${LIMITS.scheduleMaxDays}일 뒤까지 정할 수 있어요`];
+    const limit = Math.min(now, earliestHeld ?? now) + LIMITS.scheduleMaxDays * DAY;
+    if (s.at > limit + 30 * MINUTE)
+      return earliestHeld && earliestHeld < now
+        ? ["모아 둔 댓글이 7일이 지나면 DM을 보낼 수 없어요. 더 이른 시각으로 골라 주세요"]
+        : [`예약은 ${LIMITS.scheduleMaxDays}일 뒤까지 정할 수 있어요`];
     const d = new Date(s.at);
-    if (d.getMinutes() % LIMITS.scheduleStepMinutes !== 0) return ["예약 시각은 30분 단위로 정할 수 있어요"];
+    if (d.getMinutes() % LIMITS.scheduleStepMinutes !== 0 || d.getSeconds() !== 0 || d.getMilliseconds() !== 0)
+      return ["예약 시각은 30분 단위로 정할 수 있어요"];
     return [];
+  }
+
+  private sanitizeTrigger(t: Trigger): Trigger {
+    if (t?.type !== "keyword") return { type: "all", keywords: [] };
+    return { type: "keyword", keywords: (t.keywords ?? []).map((k) => String(k).trim().replace(/\s+/g, " ")) };
   }
 
   private sanitizeDM(dm: DMContent): DMContent {
@@ -117,7 +132,10 @@ export class Services {
       if (input.sendMode === "batch") errs.push("다음 게시물에는 일괄 발송을 쓸 수 없어요");
       if (this.db.automations.some((a) => a.nextPost && !a.postId)) errs.push("이미 다음에 올릴 게시물 자동화가 있어요");
     }
+    if (input.sendMode === "batch" && this.db.settings.dmPaused)
+      errs.push("DM 발송을 일시 중지해 둔 동안에는 일괄 발송을 시작할 수 없어요. 설정에서 다시 켠 뒤 등록해 주세요");
     const dm = this.sanitizeDM(input.dm);
+    input = { ...input, trigger: this.sanitizeTrigger(input.trigger) };
     errs.push(...validateTrigger(input.trigger), ...validateDM(dm), ...validateExtras(input.extras, input.sendMode));
     if (input.sendMode === "scheduled") errs.push(...this.validateSchedule(input.schedule));
     const candidate = {
@@ -138,7 +156,7 @@ export class Services {
       updatedAt: now,
       postId: candidate.postId,
       nextPost: input.nextPost,
-      trigger: { type: input.trigger.type, keywords: input.trigger.type === "keyword" ? input.trigger.keywords.map((k) => k.trim()) : [] },
+      trigger: input.trigger,
       dm,
       extras: cloneDeep(input.extras),
       code: this.acceptCode(input.code),
@@ -149,6 +167,8 @@ export class Services {
       templateId: input.templateId,
     };
     if (a.sendMode !== "immediate") a.extras.commentReply.enabled = false;
+    // 일괄 발송은 댓글을 다 불러오기 전에도 "보내는 중"으로 저장해 둬요 (도중에 꺼져도 다시 이어서)
+    if (a.sendMode === "batch") a.batch = { startedAt: now, total: 0, fetching: true };
     this.db.automations.unshift(a);
     if (input.templateId) {
       const t = this.db.templates.find((x) => x.id === input.templateId);
@@ -193,16 +213,16 @@ export class Services {
       if (patch.schedule) {
         if (a.schedule?.firedAt) errs.push("이미 보낸 예약은 시각을 바꿀 수 없어요");
         else {
-          errs.push(...this.validateSchedule(patch.schedule));
+          const held = this.db.queue.filter((q) => q.automationId === a.id && q.origin === "scheduled").map((q) => q.createdAt);
+          errs.push(...this.validateSchedule(patch.schedule, held.length ? Math.min(...held) : undefined));
           next.schedule = { ...a.schedule!, at: patch.schedule.at, continueAfter: patch.schedule.continueAfter };
         }
       }
       if (patch.extras) next.extras = { ...cloneDeep(patch.extras), commentReply: { ...patch.extras.commentReply, enabled: false } };
     } else {
       if (patch.trigger) {
-        errs.push(...validateTrigger(patch.trigger));
-        next.trigger = cloneDeep(patch.trigger);
-        if (next.trigger.type === "all") next.trigger.keywords = [];
+        next.trigger = this.sanitizeTrigger(patch.trigger);
+        errs.push(...validateTrigger(next.trigger));
       }
       if (patch.postId !== undefined && patch.postId !== a.postId) {
         if (!patch.postId || !this.db.posts.some((p) => p.id === patch.postId)) errs.push("게시물을 골라 주세요");
@@ -263,12 +283,12 @@ export class Services {
   private validateTemplate(t: Pick<Template, "name" | "dm" | "extras">): string[] {
     const errs: string[] = [];
     if (!t.name.trim()) errs.push("템플릿 이름을 넣어 주세요");
-    if ([...t.name].length > LIMITS.templateName) errs.push(`템플릿 이름은 ${LIMITS.templateName}자까지예요`);
+    if (glen(t.name) > LIMITS.templateName) errs.push(`템플릿 이름은 ${LIMITS.templateName}자까지예요`);
     // 템플릿은 링크 없이 저장할 수도 있게 문구만 확인
     if (t.dm.main.format === "text" && !t.dm.main.text.trim()) errs.push("DM 문구를 넣어 주세요");
-    if ([...t.dm.main.text].length > LIMITS.dmText) errs.push(`DM 문구는 ${LIMITS.dmText}자까지 쓸 수 있어요`);
+    if (glen(t.dm.main.text) > LIMITS.dmText) errs.push(`DM 문구는 ${LIMITS.dmText}자까지 쓸 수 있어요`);
     if (t.dm.main.buttons.length > LIMITS.buttonsPerMessage) errs.push(`버튼은 ${LIMITS.buttonsPerMessage}개까지예요`);
-    if (t.dm.main.buttons.some((b) => [...b.title].length > LIMITS.buttonTitle)) errs.push(`버튼 이름은 ${LIMITS.buttonTitle}자까지예요`);
+    if (t.dm.main.buttons.some((b) => glen(b.title) > LIMITS.buttonTitle)) errs.push(`버튼 이름은 ${LIMITS.buttonTitle}자까지예요`);
     if (t.dm.main.buttons.some((b) => b.url.trim() && !isValidUrl(normalizeUrl(b.url)))) errs.push("버튼 링크가 올바르지 않아요");
     return errs;
   }
@@ -328,7 +348,7 @@ export class Services {
     const replies = (input.replies ?? []).map((r) => String(r).trim()).filter(Boolean).slice(0, LIMITS.customRepliesMax);
     const errs: string[] = [];
     if (!input.name?.trim()) errs.push("답글 모음 이름을 넣어 주세요");
-    if ([...(input.name ?? "")].length > LIMITS.replySetName) errs.push(`이름은 ${LIMITS.replySetName}자까지예요`);
+    if (glen(input.name ?? "") > LIMITS.replySetName) errs.push(`이름은 ${LIMITS.replySetName}자까지예요`);
     if (replies.length < LIMITS.customRepliesMin) errs.push(`답글은 ${LIMITS.customRepliesMin}개 이상 넣어 주세요`);
     if (errs.length) throw bad(errs);
     if (input.id) {
@@ -356,7 +376,7 @@ export class Services {
     const url = normalizeUrl(input.url);
     const errs: string[] = [];
     if (!input.title.trim()) errs.push("링크 이름을 넣어 주세요");
-    if ([...input.title].length > LIMITS.linkTitle) errs.push(`링크 이름은 ${LIMITS.linkTitle}자까지예요`);
+    if (glen(input.title) > LIMITS.linkTitle) errs.push(`링크 이름은 ${LIMITS.linkTitle}자까지예요`);
     if (!isValidUrl(url)) errs.push("올바른 링크 주소를 넣어 주세요");
     if (errs.length) throw bad(errs);
     if (input.id) {

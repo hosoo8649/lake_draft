@@ -6,7 +6,7 @@ import { PostGrid, type PostWithMeta } from "../components/automation/Pickers";
 import { KeywordInput } from "../components/automation/KeywordInput";
 import { Avatar } from "../components/dm/Phone";
 import { useConfirm, useErrorToast, useToast } from "../components/feedback";
-import { EmptyState, Loading, PageHeader, PostThumb, Progress, Section } from "../components/ui";
+import { EmptyState, Loading, PageHeader, PostThumb, Progress, Section, FooterBar } from "../components/ui";
 import { api, useApi } from "../lib/api";
 import type { Draw, Trigger } from "@shared/types";
 import { copyText, fmtDateTime, postTitle, triggerSummary } from "../lib/format";
@@ -156,7 +156,7 @@ export function DrawsPage() {
                 댓글이 없는 게시물은 추첨할 수 없어요
               </Text>
             )}
-            <div className="footer-bar">
+            <FooterBar>
               <ActionButton
                 variant="brandSolid"
                 size="large"
@@ -165,7 +165,7 @@ export function DrawsPage() {
               >
                 다음
               </ActionButton>
-            </div>
+            </FooterBar>
           </>
         ) : (
           <VStack gap="x4">
@@ -214,7 +214,7 @@ export function DrawsPage() {
                 </Text>
               </HStack>
             </Section>
-            <div className="footer-bar">
+            <FooterBar>
               <ActionButton
                 variant="brandSolid"
                 size="large"
@@ -224,7 +224,7 @@ export function DrawsPage() {
               >
                 {count}명 추첨하기
               </ActionButton>
-            </div>
+            </FooterBar>
           </VStack>
         )}
       </div>

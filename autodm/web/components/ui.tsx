@@ -1,6 +1,7 @@
 import { IconChevronLeftLine } from "@karrotmarket/react-monochrome-icon";
 import { HStack, Icon, Text, VStack } from "@seed-design/react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { Snackbar } from "@seed-design/react";
 import { useNavigate } from "react-router-dom";
 import { Badge } from "seed-design/ui/badge";
 import type { AutomationHealth, AutomationStatus, Post } from "@shared/types";
@@ -188,5 +189,16 @@ export function Loading() {
     <VStack align="center" py="x10">
       <Text color="fg.neutralSubtle">불러오는 중…</Text>
     </VStack>
+  );
+}
+
+/** 화면 아래 고정 버튼 영역 — 알림(스낵바)이 버튼을 가리지 않도록 그 위에 떠요 */
+export function FooterBar(props: { children: ReactNode; style?: CSSProperties }) {
+  return (
+    <Snackbar.AvoidOverlap>
+      <div className="footer-bar" style={props.style}>
+        {props.children}
+      </div>
+    </Snackbar.AvoidOverlap>
   );
 }

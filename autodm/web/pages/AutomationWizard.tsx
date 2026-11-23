@@ -18,7 +18,7 @@ import { DMStage } from "../components/dm/DMEditor";
 import { useConfirm, useErrorToast, useToast } from "../components/feedback";
 import { TextInput } from "../components/fields";
 import { Modal } from "../components/Modal";
-import { Loading, PageHeader, PostThumb } from "../components/ui";
+import { Loading, PageHeader, PostThumb, FooterBar } from "../components/ui";
 import { ApiError, api, useApi } from "../lib/api";
 import { useAppState } from "../lib/appState";
 import { SEND_MODE_LABEL, fmtDateTime, postTitle, triggerSummary } from "../lib/format";
@@ -200,7 +200,8 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
         scheduleAt: a.schedule?.at ?? defaultScheduleAt(),
         continueAfter: a.schedule?.continueAfter ?? true,
       });
-      setCode(a.code);
+      // 꺼 둔 코드는 다시 쓸 수 없어요 — 다시 켜면 저장할 때 새 코드가 만들어져요
+      setCode(a.codeRetired && !a.extras.codeReply ? "" : a.code);
       setStep("final");
       setOpen({ trigger: true, dm: true, extras: true });
       setDone({ trigger: true, dm: true, extras: true });
@@ -246,17 +247,17 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
     setDraft((d) => ({ ...d, templateId: t.id, dm: reissueIds(t.dm), extras: cloneDeep(t.extras) }));
   }
 
-  // 템플릿 화면의 "이 템플릿으로 자동화 만들기" / 템플릿을 만들거나 고치고 돌아왔을 때
+  // 템플릿 화면의 "이 템플릿으로 자동화 만들기" / 템플릿을 만들거나 고치고 돌아왔을 때 — 한 번만 적용
   useEffect(() => {
     if (!templates.data) return;
     const tid = params.get("template") ?? params.get("selectTemplate");
     if (!tid) return;
     const t = [...templates.data.mine, ...templates.data.builtin].find((x) => x.id === tid);
-    if (t) applyTemplate(t);
-    if (params.get("selectTemplate")) {
-      params.delete("selectTemplate");
-      setParams(params, { replace: true });
-    }
+    if (!t) return;
+    applyTemplate(t);
+    params.delete("template");
+    params.delete("selectTemplate");
+    setParams(params, { replace: true });
   }, [templates.data]);
 
   const postList = posts.data ?? [];
@@ -556,7 +557,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
       onOpen={() => setOpen((o) => ({ ...o, extras: true }))}
     >
       <VStack gap="x4">
-        <ExtrasEditor extras={draft.extras} onChange={(extras) => set({ extras })} sendMode={original?.sendMode} code={code} username={state.account.username} />
+        <ExtrasEditor extras={draft.extras} onChange={(extras) => set({ extras })} sendMode={original?.sendMode} code={code || undefined} username={state.account.username} />
         {mode === "create" && (
           <HStack justify="flex-end">
             <ActionButton variant="neutralSolid" onClick={() => confirmSection("extras")}>
@@ -647,11 +648,11 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
                 : undefined
             }
           />
-          <div className="footer-bar">
+          <FooterBar>
             <ActionButton variant="brandSolid" size="large" onClick={nextFromPost}>
               다음
             </ActionButton>
-          </div>
+          </FooterBar>
         </VStack>
       )}
 
@@ -698,7 +699,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
               post={draft.nextPost ? null : post}
             />
           </div>
-          <div className="footer-bar" style={{ gridColumn: "1 / -1" }}>
+          <FooterBar style={{ gridColumn: "1 / -1" }}>
             <ActionButton variant="neutralWeak" size="large" onClick={() => setStep("post")}>
               이전
             </ActionButton>
@@ -715,7 +716,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
             >
               다음
             </ActionButton>
-          </div>
+          </FooterBar>
         </div>
       )}
 
@@ -756,7 +757,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
             />
           </section>
 
-          <div className="footer-bar">
+          <FooterBar>
             {mode === "edit" ? (
               <>
                 <ActionButton variant="neutralWeak" size="large" onClick={() => nav(`/automations/${id}`)}>
@@ -778,7 +779,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
                 </ActionButton>
               </>
             )}
-          </div>
+          </FooterBar>
         </VStack>
       )}
 

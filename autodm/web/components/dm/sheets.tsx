@@ -213,7 +213,13 @@ function ButtonsEditor(props: { buttons: DMButton[]; max: number; onChange: (b: 
 
 /* ───────────── 캐러셀 카드 ───────────── */
 
-function CardEditor(props: { card: CarouselCard; onChange: (c: CarouselCard) => void; links: LinkItem[] }) {
+function CardEditor(props: {
+  card: CarouselCard;
+  onChange: (c: CarouselCard) => void;
+  /** 비동기 작업(이미지 올리기·링크 불러오기)이 끝났을 때 최신 카드에 덧붙여 적용 */
+  onPatch: (cardId: string, patch: (c: CarouselCard) => Partial<CarouselCard>) => void;
+  links: LinkItem[];
+}) {
   const c = props.card;
   const [fillUrl, setFillUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -227,13 +233,12 @@ function CardEditor(props: { card: CarouselCard; onChange: (c: CarouselCard) => 
     setBusy(true);
     try {
       const meta = await api<{ title: string; description: string; image: string }>(`/link-preview?url=${encodeURIComponent(url)}`);
-      props.onChange({
-        ...c,
-        title: (meta.title || c.title).slice(0, LIMITS.cardTitle),
-        subtitle: (meta.description || c.subtitle).slice(0, LIMITS.cardSubtitle),
-        imageUrl: meta.image || c.imageUrl,
-        buttons: c.buttons.length ? c.buttons : [emptyButton("자세히 보기", url)],
-      });
+      props.onPatch(c.id, (cur) => ({
+        title: (meta.title || cur.title).slice(0, LIMITS.cardTitle),
+        subtitle: (meta.description || cur.subtitle).slice(0, LIMITS.cardSubtitle),
+        imageUrl: meta.image || cur.imageUrl,
+        buttons: cur.buttons.length ? cur.buttons : [emptyButton("자세히 보기", url)],
+      }));
       setFillUrl("");
     } finally {
       setBusy(false);
@@ -285,7 +290,8 @@ function CardEditor(props: { card: CarouselCard; onChange: (c: CarouselCard) => 
               if (!f) return;
               setUploading(true);
               try {
-                props.onChange({ ...c, imageUrl: await uploadImage(f) });
+                const imageUrl = await uploadImage(f);
+                props.onPatch(c.id, () => ({ imageUrl }));
               } catch (err) {
                 onError(err);
               } finally {
@@ -511,7 +517,21 @@ export function FullEditModal(props: {
                   </Text>
                   {m.cards[cardIdx] && (
                     <>
-                      <CardEditor card={m.cards[cardIdx]} links={props.links} onChange={(c) => setM({ ...m, cards: m.cards.map((x, j) => (j === cardIdx ? c : x)) })} />
+                      <CardEditor
+                        card={m.cards[cardIdx]}
+                        links={props.links}
+                        onChange={(c) => setM({ ...m, cards: m.cards.map((x) => (x.id === c.id ? c : x)) })}
+                        onPatch={(cardId, patch) =>
+                          setDm((d) => {
+                            const key = tab === "nonFollower" ? "nonFollower" : "main";
+                            const msg = key === "nonFollower" ? d.followGate.nonFollower : d.main;
+                            const cards = msg.cards.map((x) => (x.id === cardId ? { ...x, ...patch(x) } : x));
+                            return key === "nonFollower"
+                              ? { ...d, followGate: { ...d.followGate, nonFollower: { ...msg, cards } } }
+                              : { ...d, main: { ...msg, cards } };
+                          })
+                        }
+                      />
                       {m.cards.length > 1 && (
                         <HStack>
                           <ActionButton

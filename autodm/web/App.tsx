@@ -8,7 +8,7 @@ import {
   IconSquare2StackedLine,
   IconTrophyLine,
 } from "@karrotmarket/react-monochrome-icon";
-import { HStack, Icon, Layout, Text, VStack, useBreakpoint } from "@seed-design/react";
+import { HStack, Icon, Layout, Text, VStack, useBreakpoint, Snackbar } from "@seed-design/react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { Badge } from "seed-design/ui/badge";
 import {
@@ -32,6 +32,7 @@ import { DrawsPage } from "./pages/Draws";
 import { HelpPage } from "./pages/Help";
 import { HomePage } from "./pages/Home";
 import { LinksPage } from "./pages/Links";
+import { LoginPage } from "./pages/Login";
 import { SettingsPage } from "./pages/Settings";
 import { SimulatorPage } from "./pages/Simulator";
 import { TemplateEditorPage } from "./pages/TemplateEditor";
@@ -54,14 +55,16 @@ function MobileShell({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ paddingBottom: 72 }}>
       {children}
-      <nav className="tabbar" aria-label="주요 메뉴">
-        {tabs.map((t) => (
-          <button key={t.path} type="button" data-current={t.match(pathname)} onClick={() => nav(t.path)}>
-            <Icon svg={t.icon} />
-            <span>{t.label}</span>
-          </button>
-        ))}
-      </nav>
+      <Snackbar.AvoidOverlap>
+        <nav className="tabbar" aria-label="주요 메뉴">
+          {tabs.map((t) => (
+            <button key={t.path} type="button" data-current={t.match(pathname)} onClick={() => nav(t.path)}>
+              <Icon svg={t.icon} />
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </nav>
+      </Snackbar.AvoidOverlap>
     </div>
   );
 }
@@ -140,8 +143,9 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 export function App() {
-  const { state } = useAppState();
+  const { state, needsLogin } = useAppState();
   const { pathname } = useLocation();
+  if (needsLogin) return <LoginPage />;
   if (!state) return <Loading />;
   const connected = state.account.connected;
   if (!connected && !pathname.startsWith("/connect")) return <Navigate to="/connect" replace />;

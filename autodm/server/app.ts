@@ -11,6 +11,7 @@ import { DEMO_PROFILE, DemoGateway, randomSampleComment, seedDemo } from "./inst
 import type { Gateway } from "./instagram/gateway";
 import { LiveGateway, authorizeUrl, exchangeCode, refreshToken, subscribeWebhooks } from "./instagram/live";
 import { dispatchWebhook, verifySignature, type WebhookPayload } from "./instagram/webhook";
+import { createAuth } from "./auth";
 import { fetchPublic } from "./safeFetch";
 import { HttpError, Services } from "./services";
 import { emptyDB, type Store } from "./store";
@@ -49,6 +50,7 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
 
   const app = express();
   app.disable("x-powered-by");
+  const auth = createAuth(store);
 
   /* ───────────── 웹훅 (원본 바디로 서명 확인) ───────────── */
 
@@ -101,9 +103,21 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
   /* ───────────── Instagram 로그인 (OAuth) ───────────── */
 
   const redirectUri = () => `${publicBase()}/auth/instagram/callback`;
-  const webUrl = (path: string) => `${config.webBaseUrl || ""}${path}`;
+  /** Instagram 로그인을 시작한 화면 주소로 돌아가요 (localhost에서 시작했다면 localhost로) */
+  const webUrl = (path: string) => `${config.webBaseUrl || db().oauthReturn || ""}${path}`;
+  const startOrigin = (req: Request): string => {
+    const ref = typeof req.headers.referer === "string" ? req.headers.referer : "";
+    try {
+      const u = new URL(ref);
+      const local = ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+      if (local || (publicBase() && u.origin === new URL(publicBase()).origin)) return u.origin;
+    } catch {
+      /* 주소를 알 수 없으면 상대 경로로 */
+    }
+    return "";
+  };
 
-  app.get("/auth/instagram/start", (req, res) => {
+  app.get("/auth/instagram/start", auth.guardPage, (req, res) => {
     if (!liveConfigured()) {
       res.redirect(webUrl("/connect?error=not_configured"));
       return;
@@ -114,6 +128,7 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
     }
     const state = crypto.randomBytes(16).toString("hex");
     db().oauthState = state;
+    db().oauthReturn = startOrigin(req);
     store.changed();
     res.redirect(authorizeUrl(redirectUri(), state, IG_SCOPES, req.query.force === "1"));
   });
@@ -160,7 +175,14 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
   /* ───────────── REST API ───────────── */
 
   const api = express.Router();
+  api.use(auth.guardApi);
   api.use(express.json({ limit: "1mb" }));
+
+  /* 로그인 (바깥에서 접속할 때) */
+  api.get("/session", auth.session);
+  api.post("/login", auth.login);
+  api.get("/admin-password", (_req, res) => res.json(auth.passwordInfo()));
+  api.post("/admin-password/rotate", (_req, res) => res.json(auth.rotate()));
 
   api.get("/state", (_req, res) => {
     res.json({
@@ -526,6 +548,7 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
   }
 
   function start() {
+    void engine.resumeBatches().catch((e) => console.error("[batch resume]", e));
     const t1 = setInterval(() => void engine.tick().catch((e) => console.error("[tick]", e)), 1000);
     const t2 = setInterval(() => void refreshTokenIfNeeded(), 6 * HOUR);
     void refreshTokenIfNeeded();
@@ -535,5 +558,5 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
     };
   }
 
-  return { app, engine, services, start };
+  return { app, engine, services, start, auth };
 }
