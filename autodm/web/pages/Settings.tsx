@@ -66,7 +66,7 @@ export function SettingsPage() {
               aria-label="DM 자동 발송"
             />
           </Row>
-          <Row title="댓글 자동 답글" description="답글만 따로 멈출 수 있어요. DM 발송을 멈추면 답글도 함께 멈춰요.">
+          <Row title="댓글 자동 답글" description="답글만 따로 멈출 수 있어요. 멈춘 동안 달릴 예정이던 답글은 다시 켜도 달지 않아요. DM 발송을 멈추면 답글도 함께 멈춰요.">
             <Switch
               checked={!s.replyPaused && !s.dmPaused}
               disabled={s.dmPaused}

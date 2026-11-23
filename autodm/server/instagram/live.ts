@@ -145,7 +145,14 @@ export class LiveGateway implements Gateway {
       const res = await graph<{ id?: string }>(this.token(), "POST", `/${commentId}/replies`, { message: text });
       return { ok: true, messageId: res.id };
     } catch (e) {
-      return fail(e);
+      const r = fail(e);
+      // 답글은 DM과 실패 이유가 달라요
+      if (!r.ok && e instanceof GraphError && !r.authError) {
+        if (e.info.code === 10 || e.info.code === 200)
+          return { ...r, error: "댓글 답글 권한이 없어요 (다시 연동하면서 댓글 관리 권한을 허용해 주세요)", retryable: false };
+        if (e.info.code === 100) return { ...r, error: "댓글이 삭제됐거나 찾을 수 없어요", retryable: false };
+      }
+      return r;
     }
   }
 

@@ -32,13 +32,19 @@ export function automationHealth(store: Store, a: Automation, now = Date.now()):
   const acc = store.db.account;
   if (!acc?.connected || acc.needsReauth)
     return { state: "blocked", failedCount: 0, reasons: ["인스타그램 연결이 끊겼어요. 다시 연동해 주세요"] };
-  const recent = store.db.deliveries.filter((d) => d.automationId === a.id && d.createdAt >= now - DAY);
+  const all = store.db.deliveries.filter((d) => d.automationId === a.id && d.createdAt >= now - DAY);
+  // 상태는 DM 기준 — 댓글 답글이 실패해도 DM이 잘 나가면 "정상"이고, 답글 문제는 따로 알려 줘요
+  const recent = all.filter((d) => d.kind !== "reply");
+  const replyFailed = all.filter((d) => d.kind === "reply" && d.status === "failed");
+  const replyNote = replyFailed.length
+    ? [`댓글 답글 ${replyFailed.length}건을 달지 못했어요${replyFailed.at(-1)?.error ? ` (${replyFailed.at(-1)!.error})` : ""}`]
+    : [];
   const failed = recent.filter((d) => d.status === "failed");
   const retrying = recent.filter((d) => d.status === "retrying");
   const reasons = [...new Set([...failed, ...retrying].map((d) => d.error).filter(Boolean) as string[])].slice(0, 3);
-  if (retrying.length) return { state: "retrying", failedCount: failed.length, reasons };
-  if (failed.length) return { state: "failed", failedCount: failed.length, reasons };
-  return { state: "ok", failedCount: 0, reasons: [] };
+  if (retrying.length) return { state: "retrying", failedCount: failed.length, reasons: [...reasons, ...replyNote] };
+  if (failed.length) return { state: "failed", failedCount: failed.length, reasons: [...reasons, ...replyNote] };
+  return { state: "ok", failedCount: 0, reasons: replyNote };
 }
 
 export function automationStats(store: Store, id: string, now = Date.now()) {

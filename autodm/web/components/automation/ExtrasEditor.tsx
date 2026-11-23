@@ -15,6 +15,7 @@ import { Switch } from "seed-design/ui/switch";
 import { LIMITS } from "@shared/limits";
 import { FRIENDLY_REPLIES, POLITE_REPLIES } from "@shared/presets";
 import type { CommentReplySetting, Extras, ReplySet, SendMode } from "@shared/types";
+import { replyKey } from "@shared/validation";
 import { api, useApi } from "../../lib/api";
 import { TONE_LABEL, copyText, fanGuideText } from "../../lib/format";
 import { useErrorToast, useToast } from "../feedback";
@@ -72,6 +73,7 @@ function ReplyPickerModal(props: { open: boolean; value: CommentReplySetting; on
   const [v, setV] = useState(props.value);
   const [draft, setDraft] = useState("");
   const [saveName, setSaveName] = useState("");
+  const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const sets = useApi<ReplySet[]>(props.open ? "/reply-sets" : null);
   const toast = useToast();
   const onError = useErrorToast();
@@ -80,14 +82,19 @@ function ReplyPickerModal(props: { open: boolean; value: CommentReplySetting; on
       setV(props.value);
       setDraft("");
       setSaveName("");
+      setConfirmDel(null);
     }
   }, [props.open]);
 
   const custom = v.custom;
   const setCustom = (c: string[]) => setV({ ...v, custom: c.slice(0, LIMITS.customRepliesMax) });
   const add = () => {
-    const t = draft.trim();
+    const t = replyKey(draft);
     if (!t) return;
+    if (custom.some((c) => replyKey(c) === t)) {
+      toast("이미 넣은 답글이에요. 다른 답글을 넣어 주세요");
+      return;
+    }
     setCustom([...custom, t]);
     setDraft("");
   };
@@ -136,14 +143,27 @@ function ReplyPickerModal(props: { open: boolean; value: CommentReplySetting; on
                           {s.name} · {s.replies.length}
                         </Chip.Label>
                       </Chip.Button>
-                      <IconBtn
-                        label={`${s.name} 삭제`}
-                        icon={<IconTrashcanLine />}
-                        onClick={async () => {
-                          await api(`/reply-sets/${s.id}`, { method: "DELETE" });
-                          void sets.reload();
-                        }}
-                      />
+                      {confirmDel === s.id ? (
+                        // 창 위에 창을 또 띄우지 않고 그 자리에서 한 번 더 확인해요
+                        <ActionButton
+                          size="xsmall"
+                          variant="criticalSolid"
+                          onClick={async () => {
+                            try {
+                              await api(`/reply-sets/${s.id}`, { method: "DELETE" });
+                              toast(`‘${s.name}’ 답글 모음을 삭제했어요`);
+                              setConfirmDel(null);
+                              void sets.reload();
+                            } catch (e) {
+                              onError(e);
+                            }
+                          }}
+                        >
+                          삭제할까요?
+                        </ActionButton>
+                      ) : (
+                        <IconBtn label={`${s.name} 삭제`} icon={<IconTrashcanLine />} onClick={() => setConfirmDel(s.id)} />
+                      )}
                     </HStack>
                   ))}
                 </div>
@@ -242,7 +262,7 @@ export function ExtrasEditor(props: {
         description={
           replyBlocked
             ? "예약·일괄 발송에서는 댓글 답글을 쓸 수 없어요 (짧은 시간에 답글이 몰리면 인스타그램이 제한할 수 있어요)"
-            : "DM을 보내고 댓글에도 답글을 달아요"
+            : "DM이 나간 뒤 그 댓글에 답글을 달아요. 몰리지 않게 하나씩 간격을 두고 달고, DM을 못 보낸 댓글에는 달지 않아요"
         }
         tags={props.showTags ? "#DM확인안내 #댓글반응늘리기" : undefined}
         checked={r.enabled && !replyBlocked}

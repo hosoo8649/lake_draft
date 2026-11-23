@@ -15,7 +15,11 @@ import {
 } from "./messages";
 
 const MAX_ATTEMPTS = 5;
+/** 댓글 답글: 시간당 최대 개수, 답글 사이 최소 간격 (한꺼번에 몰리면 인스타그램이 제한할 수 있어요) */
 const REPLY_LIMIT_PER_HOUR = 60;
+const REPLY_MIN_GAP = 20_000;
+/** 이보다 오래 밀린 답글은 달지 않아요 (며칠 지난 댓글에 갑자기 답글이 달리지 않도록) */
+const REPLY_MAX_AGE = 6 * HOUR;
 /** 비팔로워가 확인 버튼을 연달아 눌러도 이 간격 안에는 한 번만 답해요 */
 const RECHECK_COOLDOWN = 30_000;
 /** 팔로우 여부를 확인하지 못했을 때 다시 시도하는 횟수·간격 */
@@ -161,17 +165,7 @@ export class Engine {
       username: c.username,
       notBefore,
     });
-    if (a.extras.commentReply.enabled && a.sendMode === "immediate" && !this.db.settings.replyPaused) {
-      this.enqueue(a, {
-        kind: "reply",
-        origin: "comment",
-        commentId: c.id,
-        userId: c.userId,
-        username: c.username,
-        notBefore,
-        replyText: this.nextReply(a),
-      });
-    }
+    // 댓글 답글은 DM이 실제로 나간 뒤에 달아요 (sendItem → queueReply)
     this.store.changed();
     return { automationId: a.id };
   }
@@ -196,6 +190,9 @@ export class Engine {
     );
   }
 
+  /** 지금 팔로우 여부를 확인하고 있는 (자동화|사람) */
+  private checking = new Set<string>();
+
   /** 팔로우 확인 버튼 (postback) */
   async handlePostback(
     userId: string,
@@ -211,7 +208,17 @@ export class Engine {
     // 이미 본 DM을 받았거나 보낼 예정이면 다시 보내지 않아요
     if (this.hasDelivery(a.id, userId, "main", ["sent", "queued", "retrying"])) return { follower: true, skipped: "already-sent" };
     if (this.db.pendingChecks.some((p) => p.automationId === a.id && p.userId === userId)) return { skipped: "checking" };
-    const follower = await this.gateway().isFollower(userId);
+    // 버튼을 빠르게 두 번 눌러도 확인은 한 번만 (확인하는 동안 들어온 요청은 건너뛰어요)
+    const key = `${a.id}|${userId}`;
+    if (this.checking.has(key)) return { skipped: "checking" };
+    this.checking.add(key);
+    let follower: boolean | null;
+    try {
+      follower = await this.gateway().isFollower(userId);
+    } finally {
+      this.checking.delete(key);
+    }
+    if (this.hasDelivery(a.id, userId, "main", ["sent", "queued", "retrying"])) return { follower: true, skipped: "already-sent" };
     if (follower === null) {
       // 인스타그램 오류로 확인하지 못했어요 → 잠시 뒤 다시 확인 (비팔로워로 넘겨짚지 않아요)
       this.db.pendingChecks.push({ automationId: a.id, userId, username, attempts: 1, notBefore: this.now() + FOLLOW_CHECK_DELAY });
@@ -242,9 +249,18 @@ export class Engine {
     const due = this.db.pendingChecks.filter((p) => p.notBefore <= this.now());
     for (const p of due) {
       const a = this.db.automations.find((x) => x.id === p.automationId);
+      const key = `${p.automationId}|${p.userId}`;
+      if (a && this.checking.has(key)) continue;
       this.db.pendingChecks = this.db.pendingChecks.filter((x) => x !== p);
       if (!a) continue;
-      const follower = await this.gateway().isFollower(p.userId);
+      this.checking.add(key);
+      let follower: boolean | null;
+      try {
+        follower = await this.gateway().isFollower(p.userId);
+      } finally {
+        this.checking.delete(key);
+      }
+      if (this.hasDelivery(a.id, p.userId, "main", ["sent", "queued", "retrying"])) continue;
       if (follower !== null) {
         this.enqueueFollowResult(a, p.userId, p.username, follower);
         continue;
@@ -409,15 +425,51 @@ export class Engine {
 
   /* ───────────── 대기열 ───────────── */
 
+  /** 답글 고르기 — 같은 게시물에서 최근에 단 답글과 겹치지 않게 (자동화가 여러 개여도 게시물 기준) */
   private nextReply(a: Automation): string {
     const r = a.extras.commentReply;
-    const pool = replyPool(r.tone, r.count, r.custom);
+    const pool = [...new Set(replyPool(r.tone, r.count, r.custom))];
     if (!pool.length) return "DM 보냈어요!";
-    const last = this.db.replyCursor[a.id] ?? -1;
-    let idx = Math.floor(Math.random() * pool.length);
-    if (pool.length > 1 && idx === last) idx = (idx + 1) % pool.length;
-    this.db.replyCursor[a.id] = idx;
-    return pool[idx];
+    const key = a.postId ?? a.id;
+    const recent = this.db.recentReplies[key] ?? [];
+    const avoid = new Set(recent.slice(-Math.max(0, Math.min(3, pool.length - 1))));
+    const candidates = pool.filter((t) => !avoid.has(t));
+    const from = candidates.length ? candidates : pool;
+    const text = from[Math.floor(Math.random() * from.length)];
+    this.db.recentReplies[key] = [...recent, text].slice(-5);
+    return text;
+  }
+
+  /** 댓글로 시작한 첫 DM(확인 DM 또는 본 DM)이 나간 뒤에 그 댓글에 답글을 달아요 */
+  private queueReply(a: Automation, item: QueueItem): void {
+    if (!item.commentId || item.origin !== "comment" || (item.kind !== "gate" && item.kind !== "main")) return;
+    if (!a.extras.commentReply.enabled || a.sendMode !== "immediate" || this.db.settings.replyPaused) return;
+    if (this.db.deliveries.some((d) => d.kind === "reply" && d.commentId === item.commentId)) return;
+    this.enqueue(a, {
+      kind: "reply",
+      origin: "comment",
+      commentId: item.commentId,
+      userId: item.userId,
+      username: item.username,
+      notBefore: this.now(),
+    });
+  }
+
+  /** 대기열에서 빼고 기록은 "건너뜀"으로 남겨요 */
+  private skipItem(item: QueueItem, reason: string): void {
+    this.db.queue = this.db.queue.filter((q) => q.id !== item.id);
+    const log = this.db.deliveries.find((d) => d.id === item.deliveryId);
+    if (log) {
+      log.status = "skipped";
+      log.error = reason;
+    }
+    this.store.changed();
+  }
+
+  private lastReplyAt(): number {
+    let t = 0;
+    for (const d of this.db.deliveries) if (d.kind === "reply" && d.status === "sent" && (d.sentAt ?? 0) > t) t = d.sentAt!;
+    return t;
   }
 
   private enqueue(
@@ -541,6 +593,8 @@ export class Engine {
     let dmBudget = Math.max(0, limit - this.sentInLastHour("dm"));
     let replyBudget = Math.max(0, REPLY_LIMIT_PER_HOUR - this.sentInLastHour("reply"));
     const now = this.now();
+    // 답글은 간격을 두고 한 틱에 하나씩만
+    let replyAllowed = now - this.lastReplyAt() >= REPLY_MIN_GAP;
     const paused = this.db.settings.dmPaused;
     // 한 번에 너무 몰리지 않게 틱마다 최대 20건
     let perTick = 20;
@@ -548,16 +602,32 @@ export class Engine {
       if (perTick <= 0) break;
       if (item.notBefore > now) continue;
       const isReply = item.kind === "reply";
+      const owner = this.db.automations.find((x) => x.id === item.automationId);
+      if (isReply) {
+        // 답글을 끈 뒤에는 밀려 있던 답글도 달지 않아요
+        if (this.db.settings.replyPaused) {
+          this.skipItem(item, "설정에서 댓글 자동 답글을 멈춰서 달지 않았어요");
+          continue;
+        }
+        if (!owner || !owner.extras.commentReply.enabled) {
+          this.skipItem(item, "자동화에서 댓글 답글을 꺼서 달지 않았어요");
+          continue;
+        }
+        if (now - item.createdAt > REPLY_MAX_AGE) {
+          this.skipItem(item, "오래 밀린 답글이라 달지 않았어요");
+          continue;
+        }
+      }
       // 일시 중지 중에는 이미 시작한 일괄 발송만 계속 보내요
       if (paused && item.origin !== "batch") continue;
       // 꺼 둔 자동화는 다시 켤 때까지 보내지 않아요 (팔로우 확인 응답·일괄 발송은 이어서 보내요)
-      const owner = this.db.automations.find((x) => x.id === item.automationId);
       if (owner && !owner.enabled && item.origin !== "postback" && item.origin !== "batch") continue;
-      if (isReply && this.db.settings.replyPaused) continue;
-      if (isReply ? replyBudget <= 0 : dmBudget <= 0) continue;
+      if (isReply ? replyBudget <= 0 || !replyAllowed : dmBudget <= 0) continue;
       perTick--;
-      if (isReply) replyBudget--;
-      else dmBudget--;
+      if (isReply) {
+        replyBudget--;
+        replyAllowed = false;
+      } else dmBudget--;
       await this.sendItem(item);
     }
   }
@@ -587,7 +657,10 @@ export class Engine {
     const ctx = { deliveryId: log.id, userId: item.userId, username: item.username };
     let result;
     try {
-      if (item.kind === "reply") result = await gw.replyToComment(item.commentId!, item.replyText ?? "DM 보냈어요!");
+      if (item.kind === "reply") {
+        if (!item.replyText) item.replyText = this.nextReply(a);
+        result = await gw.replyToComment(item.commentId!, item.replyText);
+      }
       else if (item.commentId && (item.kind === "gate" || item.kind === "main") && item.origin !== "postback")
         result = await gw.sendPrivateReply(item.commentId, msg!, ctx);
       else result = await gw.sendDirect(item.userId, msg!, ctx);
@@ -601,6 +674,7 @@ export class Engine {
       log.messageId = result.messageId;
       log.error = undefined;
       removeItem();
+      this.queueReply(a, item);
     } else {
       item.attempts += 1;
       log.error = result.error;

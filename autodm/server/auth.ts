@@ -51,8 +51,9 @@ function ensureSecrets(store: Store): { password: string; secret: string; fromEn
   return { password: config.adminPassword || db.auth.password, secret: db.auth.secret, fromEnv: !!config.adminPassword };
 }
 
-function sessionValue(secret: string): string {
-  return crypto.createHmac("sha256", secret).update("autodm-admin-v1").digest("hex");
+/** 세션 값에 비밀번호도 넣어요 → .env에서 비밀번호를 바꾸면 기존 로그인이 풀려요 */
+function sessionValue(secret: string, password: string): string {
+  return crypto.createHmac("sha256", secret).update(`autodm-admin-v2|${password}`).digest("hex");
 }
 
 function readCookie(req: Request, name: string): string | undefined {
@@ -75,9 +76,9 @@ export function createAuth(store: Store) {
 
   const isAuthed = (req: Request): boolean => {
     if (isLocalRequest(req)) return true;
-    const { secret } = ensureSecrets(store);
+    const { secret, password } = ensureSecrets(store);
     const c = readCookie(req, COOKIE);
-    return !!c && safeEqual(c, sessionValue(secret));
+    return !!c && safeEqual(c, sessionValue(secret, password));
   };
 
   /** /api 보호: 로그인 확인 + 상태를 바꾸는 요청은 전용 헤더 필요 */
@@ -96,18 +97,23 @@ export function createAuth(store: Store) {
     res.status(401).send("로그인이 필요해요. 오토DM 화면에서 관리자 비밀번호로 로그인한 뒤 다시 시도해 주세요.");
   };
 
+  // 전체 실패 횟수 (주소 헤더를 바꿔 가며 시도해도 막히도록)
+  let globalFails: number[] = [];
   const login = (req: Request, res: Response) => {
     const ip = String(req.headers["cf-connecting-ip"] ?? req.headers["x-forwarded-for"] ?? req.socket.remoteAddress ?? "");
     const now = Date.now();
+    for (const [k, v] of attempts) if (v.until <= now) attempts.delete(k);
+    globalFails = globalFails.filter((t) => t > now - 60_000);
     const a = attempts.get(ip);
-    if (a && a.until > now && a.n >= 5) {
+    if ((a && a.n >= 5) || globalFails.length >= 20) {
       res.status(429).json({ error: "잠시 뒤 다시 시도해 주세요", details: ["비밀번호를 여러 번 틀렸어요. 1분 뒤 다시 시도해 주세요"] });
       return;
     }
     const { password, secret } = ensureSecrets(store);
     const given = String((req.body as { password?: string })?.password ?? "");
     if (!safeEqual(given, password)) {
-      attempts.set(ip, { n: (a && a.until > now ? a.n : 0) + 1, until: now + 60_000 });
+      if (attempts.size < 10_000) attempts.set(ip, { n: (a?.n ?? 0) + 1, until: now + 60_000 });
+      globalFails.push(now);
       res.status(401).json({ error: "비밀번호가 맞지 않아요", details: ["비밀번호가 맞지 않아요"] });
       return;
     }
@@ -115,7 +121,7 @@ export function createAuth(store: Store) {
     const secure = req.secure || req.headers["x-forwarded-proto"] === "https";
     res.setHeader(
       "Set-Cookie",
-      `${COOKIE}=${sessionValue(secret)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 3600}${secure ? "; Secure" : ""}`,
+      `${COOKIE}=${sessionValue(secret, password)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 3600}${secure ? "; Secure" : ""}`,
     );
     res.json({ ok: true });
   };

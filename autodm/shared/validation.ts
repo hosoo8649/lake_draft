@@ -142,12 +142,22 @@ export function validateExtras(extras: Extras, sendMode: SendMode): string[] {
   const r = extras.commentReply;
   if (r.enabled) {
     if (sendMode !== "immediate") errs.push("예약·일괄 발송에서는 댓글 답글을 쓸 수 없어요");
-    if (r.tone === "custom") {
-      const list = r.custom.map((s) => s.trim()).filter(Boolean);
-      if (list.length < LIMITS.customRepliesMin) errs.push(`내 답글은 ${LIMITS.customRepliesMin}개 이상 넣어 주세요`);
-      if (list.length > LIMITS.customRepliesMax) errs.push(`내 답글은 ${LIMITS.customRepliesMax}개까지 넣을 수 있어요`);
-    }
+    if (r.tone === "custom") errs.push(...validateReplyList(r.custom, "내 답글"));
   }
+  return errs;
+}
+
+/** 답글 비교용 (앞뒤·연속 공백 무시) */
+export const replyKey = (s: string) => s.trim().replace(/\s+/g, " ");
+
+/** 내 답글·답글 모음: 서로 다른 답글 3~30개, 각 300자 이내 */
+export function validateReplyList(replies: string[], label = "답글"): string[] {
+  const errs: string[] = [];
+  const list = replies.map(replyKey).filter(Boolean);
+  if (new Set(list).size !== list.length) errs.push("같은 답글이 두 번 들어 있어요. 서로 다른 답글로 넣어 주세요");
+  if (list.length < LIMITS.customRepliesMin) errs.push(`${label}은 서로 다른 답글로 ${LIMITS.customRepliesMin}개 이상 넣어 주세요`);
+  if (list.length > LIMITS.customRepliesMax) errs.push(`${label}은 ${LIMITS.customRepliesMax}개까지 넣을 수 있어요`);
+  if (list.some((t) => glen(t) > LIMITS.replyText)) errs.push(`답글은 하나에 ${LIMITS.replyText}자까지예요`);
   return errs;
 }
 

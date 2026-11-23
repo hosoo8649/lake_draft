@@ -286,3 +286,169 @@ describe("관리 화면 보호", () => {
     }
   });
 });
+
+describe("댓글 답글 (4차 검수)", () => {
+  beforeEach(() => {
+    clock = new Date("2026-11-23T10:00:00+09:00").getTime();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  function withReply(over: Partial<AutomationInput["extras"]["commentReply"]> = {}, base = input()) {
+    const extras = defaultExtras();
+    extras.commentReply = { ...extras.commentReply, enabled: true, ...over };
+    return { ...base, extras };
+  }
+  it("DM이 실패하면 'DM 보냈어요' 답글을 달지 않는다", async () => {
+    const { store, services, engine } = setup();
+    services.createAutomation(withReply());
+    vi.spyOn(DemoGateway.prototype, "sendPrivateReply").mockResolvedValue({ ok: false, error: "수신자가 메시지를 받을 수 없는 상태예요", retryable: false });
+    await engine.handleComment(comment("post_1", "fan_2", "링크"));
+    for (let i = 0; i < 3; i++) {
+      clock += 30_000;
+      await engine.tick();
+    }
+    expect(store.db.demo.replies).toHaveLength(0);
+    expect(store.db.deliveries.filter((d) => d.kind === "reply")).toHaveLength(0);
+  });
+
+  it("DM이 재시도 중이면 답글도 기다렸다가, DM이 나간 뒤에 단다", async () => {
+    const { store, services, engine } = setup();
+    services.createAutomation(withReply());
+    const spy = vi.spyOn(DemoGateway.prototype, "sendPrivateReply").mockResolvedValue({ ok: false, error: "일시 오류", retryable: true });
+    await engine.handleComment(comment("post_1", "fan_2", "링크"));
+    await engine.tick();
+    await engine.tick();
+    expect(store.db.demo.replies).toHaveLength(0);
+    spy.mockRestore();
+    clock += 5 * MINUTE;
+    await engine.tick(); // DM 재시도 성공
+    await engine.tick(); // 그다음 답글
+    expect(store.db.demo.inbox.filter((m) => m.fanId === "fan_2")).toHaveLength(1);
+    expect(store.db.demo.replies).toHaveLength(1);
+  });
+
+  it("DM이 발송 한도로 밀려 있으면 답글도 먼저 달지 않는다", async () => {
+    const { store, services, engine } = setup();
+    store.db.settings.rateLimitPerHour = 1;
+    services.createAutomation(withReply({}, input({ trigger: { type: "all", keywords: [] } })));
+    for (const f of ["fan_2", "fan_3", "fan_4"]) await engine.handleComment(comment("post_1", f, "hi"));
+    for (let i = 0; i < 5; i++) {
+      clock += 30_000;
+      await engine.tick();
+    }
+    expect(store.db.demo.inbox).toHaveLength(1);
+    expect(store.db.demo.replies).toHaveLength(1);
+  });
+
+  it("답글을 끄거나 설정에서 멈추면 밀려 있던 답글도 달지 않는다 (다시 켜도 옛 답글은 안 달림)", async () => {
+    const { store, services, engine } = setup();
+    const a = services.createAutomation(withReply());
+    await engine.handleComment(comment("post_1", "fan_2", "링크"));
+    await engine.handleComment(comment("post_1", "fan_3", "링크"));
+    await engine.tick(); // DM 2건, 답글 2건 대기
+    services.updateAutomation(a.id, { extras: { ...a.extras, commentReply: { ...a.extras.commentReply, enabled: false } } });
+    await engine.tick();
+    expect(store.db.demo.replies).toHaveLength(0);
+    expect(store.db.queue.filter((q) => q.kind === "reply")).toHaveLength(0);
+
+    // 설정에서 멈춤 → 다시 켜도 그동안 밀린 답글은 달지 않아요
+    services.updateAutomation(a.id, { extras: { ...a.extras, commentReply: { ...a.extras.commentReply, enabled: true } } });
+    await engine.handleComment(comment("post_1", "fan_4", "링크"));
+    await engine.tick();
+    store.db.settings.replyPaused = true;
+    await engine.tick();
+    store.db.settings.replyPaused = false;
+    clock += 3 * DAY;
+    await engine.tick();
+    expect(store.db.demo.replies).toHaveLength(0);
+  });
+
+  it("답글은 간격을 두고 하나씩 단다", async () => {
+    const { store, services, engine } = setup();
+    services.createAutomation(withReply({}, input({ trigger: { type: "all", keywords: [] } })));
+    for (const f of ["fan_2", "fan_3", "fan_4", "fan_5"]) await engine.handleComment(comment("post_1", f, "hi"));
+    await engine.tick();
+    await engine.tick();
+    await engine.tick();
+    expect(store.db.demo.inbox).toHaveLength(4);
+    expect(store.db.demo.replies).toHaveLength(1);
+    clock += 20_000;
+    await engine.tick();
+    expect(store.db.demo.replies).toHaveLength(2);
+  });
+
+  it("팔로우 확인 자동화는 확인 DM이 나간 뒤 답글을 단다", async () => {
+    const { store, services, engine } = setup();
+    services.createAutomation(withReply({}, gated()));
+    await engine.handleComment(comment("post_1", "fan_2", "링크"));
+    await engine.tick();
+    await engine.tick();
+    expect(store.db.demo.inbox[0].buttons?.[0].type).toBe("postback");
+    expect(store.db.demo.replies).toHaveLength(1);
+  });
+
+  it("같은 게시물의 다른 자동화와도 같은 답글이 연달아 달리지 않는다", async () => {
+    const { store, services, engine } = setup();
+    services.createAutomation(withReply({ tone: "friendly" }));
+    services.createAutomation(withReply({ tone: "friendly" }, input({ trigger: { type: "keyword", keywords: ["가격"] } })));
+    vi.spyOn(Math, "random").mockReturnValue(0); // 늘 첫 번째 답글을 고르려 해도
+    await engine.handleComment(comment("post_1", "fan_2", "링크"));
+    await engine.handleComment(comment("post_1", "fan_3", "가격"));
+    for (let i = 0; i < 4; i++) {
+      clock += 20_000;
+      await engine.tick();
+    }
+    const texts = store.db.demo.replies.map((r) => r.text);
+    expect(texts).toHaveLength(2);
+    expect(texts[0]).not.toBe(texts[1]);
+  });
+
+  it("내 답글에 같은 문구를 여러 번 넣을 수 없다 (답글 모음도)", () => {
+    const { services } = setup();
+    expect(() => services.createAutomation(withReply({ tone: "custom", custom: ["DM 보냈어요", "DM 보냈어요", " DM  보냈어요 "] }))).toThrow(
+      /같은 답글이 두 번/,
+    );
+    expect(() => services.upsertReplySet({ name: "a", replies: ["x", "x", "y"] })).toThrow(/같은 답글이 두 번/);
+    expect(() => services.createAutomation(withReply({ tone: "custom", custom: ["a", "b", "가".repeat(301)] }))).toThrow(/300자/);
+  });
+
+  it("추가 기능 값이 빠지거나 이상해도 서버가 500 없이 정리한다", () => {
+    const { services } = setup();
+    const a = services.createAutomation({ ...input(), extras: undefined as never });
+    expect(a.extras.commentReply.enabled).toBe(false);
+    const b = services.createAutomation({
+      ...input({ postId: "post_2" }),
+      extras: { commentReply: { enabled: true, tone: "weird", count: 0 } } as never,
+    });
+    expect(b.extras.commentReply.tone).toBe(defaultExtras().commentReply.tone);
+    expect(b.extras.commentReply.count).toBe(defaultExtras().commentReply.count);
+  });
+
+  it("팔로우 확인 버튼을 동시에 두 번 눌러도 본 DM은 한 번만", async () => {
+    const { store, services, engine } = setup();
+    services.createAutomation(gated());
+    await engine.handleComment(comment("post_1", "fan_2", "링크"));
+    await engine.tick();
+    const payload = store.db.demo.inbox.find((m) => m.fanId === "fan_2")!.buttons![0].payload!;
+    vi.spyOn(DemoGateway.prototype, "isFollower").mockImplementation(() => new Promise((r) => setTimeout(() => r(true), 20)));
+    await Promise.all([
+      engine.handlePostback("fan_2", "fan_2", payload, "m1"),
+      engine.handlePostback("fan_2", "fan_2", payload, "m2"),
+    ]);
+    await engine.tick();
+    expect(store.db.deliveries.filter((d) => d.kind === "main" && d.userId === "fan_2" && d.status === "sent")).toHaveLength(1);
+  });
+
+  it("상태는 DM 기준: 답글만 실패하면 '정상'으로 두고 답글 실패는 따로 알려 준다", async () => {
+    const { store, services, engine } = setup();
+    const a = services.createAutomation(withReply());
+    vi.spyOn(DemoGateway.prototype, "replyToComment").mockResolvedValue({ ok: false, error: "댓글이 삭제됐거나 찾을 수 없어요", retryable: false });
+    await engine.handleComment(comment("post_1", "fan_2", "링크"));
+    await engine.tick();
+    await engine.tick();
+    const { automationHealth } = await import("../server/views");
+    const h = automationHealth(store, a, clock);
+    expect(h.state).toBe("ok");
+    expect(h.reasons[0]).toMatch(/댓글 답글 1건을 달지 못했어요/);
+  });
+});

@@ -64,7 +64,8 @@ export interface DB {
   settings: Settings;
   demo: DemoState;
   retiredCodes: string[];
-  replyCursor: Record<string, number>;
+  /** 게시물별 최근에 단 답글 (같은 답글이 연달아 달리지 않게) */
+  recentReplies: Record<string, string[]>;
   /** Instagram 로그인 보안 확인 값 */
   oauthState?: string;
   /** Instagram 로그인 뒤 돌아갈 화면 주소 */
@@ -96,7 +97,7 @@ export function emptyDB(): DB {
     },
     demo: { fans: [], inbox: [], replies: [] },
     retiredCodes: [],
-    replyCursor: {},
+    recentReplies: {},
   };
 }
 

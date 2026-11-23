@@ -1,14 +1,16 @@
-import { cloneDeep, uid } from "../shared/factory";
+import { cloneDeep, defaultExtras, uid } from "../shared/factory";
 import { CODE_ALPHABET, DAY, LIMITS, MINUTE, isCodeFormat, normalizeCode } from "../shared/limits";
 import { BUILTIN_TEMPLATES } from "../shared/presets";
 import type {
   Automation,
+  CommentReplySetting,
   DMContent,
   Draw,
   DrawWinner,
   Extras,
   LinkItem,
   ReplySet,
+  ReplyTone,
   SendMode,
   Template,
   Trigger,
@@ -19,8 +21,10 @@ import {
   isValidUrl,
   keywordHit,
   normalizeUrl,
+  replyKey,
   validateDM,
   validateExtras,
+  validateReplyList,
   validateTrigger,
 } from "../shared/validation";
 import type { Engine } from "./engine/engine";
@@ -108,6 +112,25 @@ export class Services {
     return [];
   }
 
+  /** 화면에서 온 추가 기능 값을 정해진 값만 남기고 정리해요 (빠진 값은 기본값) */
+  private sanitizeExtras(e: unknown): Extras {
+    const d = defaultExtras();
+    const x = (e && typeof e === "object" ? e : {}) as Partial<Extras>;
+    const r = (x.commentReply && typeof x.commentReply === "object" ? x.commentReply : {}) as Partial<CommentReplySetting>;
+    const tones: ReplyTone[] = ["polite", "friendly", "custom"];
+    const counts: CommentReplySetting["count"][] = [10, 20, 30];
+    return {
+      commentReply: {
+        enabled: r.enabled === true,
+        tone: tones.includes(r.tone as ReplyTone) ? (r.tone as ReplyTone) : d.commentReply.tone,
+        count: counts.includes(r.count as CommentReplySetting["count"]) ? (r.count as CommentReplySetting["count"]) : d.commentReply.count,
+        custom: Array.isArray(r.custom) ? r.custom.map((t) => replyKey(String(t ?? ""))).filter(Boolean).slice(0, LIMITS.customRepliesMax + 1) : [],
+      },
+      shareReply: x.shareReply === true,
+      codeReply: x.codeReply === true,
+    };
+  }
+
   private sanitizeTrigger(t: Trigger): Trigger {
     if (t?.type !== "keyword") return { type: "all", keywords: [] };
     return { type: "keyword", keywords: (t.keywords ?? []).map((k) => String(k).trim().replace(/\s+/g, " ")) };
@@ -135,7 +158,7 @@ export class Services {
     if (input.sendMode === "batch" && this.db.settings.dmPaused)
       errs.push("DM 발송을 일시 중지해 둔 동안에는 일괄 발송을 시작할 수 없어요. 설정에서 다시 켠 뒤 등록해 주세요");
     const dm = this.sanitizeDM(input.dm);
-    input = { ...input, trigger: this.sanitizeTrigger(input.trigger) };
+    input = { ...input, trigger: this.sanitizeTrigger(input.trigger), extras: this.sanitizeExtras(input.extras) };
     errs.push(...validateTrigger(input.trigger), ...validateDM(dm), ...validateExtras(input.extras, input.sendMode));
     if (input.sendMode === "scheduled") errs.push(...this.validateSchedule(input.schedule));
     const candidate = {
@@ -197,6 +220,7 @@ export class Services {
 
     const next = cloneDeep(a);
     const errs: string[] = [];
+    if (patch.extras !== undefined) patch = { ...patch, extras: this.sanitizeExtras(patch.extras) };
     if (patch.title !== undefined) next.title = patch.title.trim() || undefined;
 
     if (patch.dm) {
@@ -295,6 +319,7 @@ export class Services {
 
   createTemplate(input: Pick<Template, "name" | "dm" | "extras"> & { keywordIdeas?: string[] }): Template {
     if (this.db.templates.length >= LIMITS.templates) throw new HttpError(400, `템플릿은 ${LIMITS.templates}개까지 저장할 수 있어요`);
+    input = { ...input, extras: this.sanitizeExtras(input.extras) };
     const errs = this.validateTemplate(input);
     if (errs.length) throw bad(errs);
     const now = this.now();
@@ -316,6 +341,7 @@ export class Services {
   updateTemplate(id: string, input: Pick<Template, "name" | "dm" | "extras">): Template {
     const t = this.db.templates.find((x) => x.id === id);
     if (!t) throw new HttpError(404, "템플릿을 찾을 수 없어요");
+    input = { ...input, extras: this.sanitizeExtras(input.extras) };
     const errs = this.validateTemplate(input);
     if (errs.length) throw bad(errs);
     // 템플릿을 고쳐도 이미 만든 자동화는 바뀌지 않아요
@@ -345,11 +371,11 @@ export class Services {
   /* ───────────── 답글 모음 ───────────── */
 
   upsertReplySet(input: { id?: string; name: string; replies: string[] }): ReplySet {
-    const replies = (input.replies ?? []).map((r) => String(r).trim()).filter(Boolean).slice(0, LIMITS.customRepliesMax);
+    const replies = (Array.isArray(input.replies) ? input.replies : []).map((r) => replyKey(String(r ?? ""))).filter(Boolean);
     const errs: string[] = [];
-    if (!input.name?.trim()) errs.push("답글 모음 이름을 넣어 주세요");
-    if (glen(input.name ?? "") > LIMITS.replySetName) errs.push(`이름은 ${LIMITS.replySetName}자까지예요`);
-    if (replies.length < LIMITS.customRepliesMin) errs.push(`답글은 ${LIMITS.customRepliesMin}개 이상 넣어 주세요`);
+    if (!String(input.name ?? "").trim()) errs.push("답글 모음 이름을 넣어 주세요");
+    if (glen(String(input.name ?? "")) > LIMITS.replySetName) errs.push(`이름은 ${LIMITS.replySetName}자까지예요`);
+    errs.push(...validateReplyList(replies));
     if (errs.length) throw bad(errs);
     if (input.id) {
       const r = this.db.replySets.find((x) => x.id === input.id);

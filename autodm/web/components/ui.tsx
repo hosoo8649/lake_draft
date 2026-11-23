@@ -129,9 +129,16 @@ export function StatusBadge({ status }: { status: AutomationStatus }) {
 export function HealthText({ health }: { health: AutomationHealth }) {
   if (health.state === "ok")
     return (
-      <Text textStyle="t3Medium" color="fg.positive">
-        정상
-      </Text>
+      <VStack gap="x0_5">
+        <Text textStyle="t3Medium" color="fg.positive">
+          정상
+        </Text>
+        {health.reasons.map((r) => (
+          <Text key={r} textStyle="t2Regular" color="fg.neutralMuted">
+            · {r}
+          </Text>
+        ))}
+      </VStack>
     );
   const label =
     health.state === "blocked"

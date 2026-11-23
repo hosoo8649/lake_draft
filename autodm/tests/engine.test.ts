@@ -249,6 +249,10 @@ describe("자동 DM 엔진", () => {
     await engine.handleComment(comment("post_1", "fan_2", "링크"));
     expect((await engine.handleComment(comment("post_1", "fan_2", "링크 하나 더"))).skipped).toBe("already-sent");
     await engine.handleComment(comment("post_1", "fan_3", "링크!"));
+    await engine.tick(); // DM 2건
+    await engine.tick(); // 답글은 DM이 나간 뒤, 간격을 두고 하나씩
+    expect(store.db.demo.replies).toHaveLength(1);
+    clock += 20_000;
     await engine.tick();
     expect(store.db.demo.replies).toHaveLength(2);
     engine.handleRead("fan_2");
