@@ -1364,3 +1364,103 @@ button {
   bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
   padding-bottom: var(--seed-dimension-x3);
 }
+
+/* ───────────── 8차 점검: 키보드 포커스 · 좁은 본문 ───────────── */
+
+/* 키보드로 이동할 때 어디에 있는지 또렷하게 (SEED 기본 링이 옅은 곳까지) */
+:is(button, a[href], [role="button"], [role="tab"], [role="menuitem"], [role="option"], summary):focus-visible {
+  outline: 2px solid var(--seed-color-stroke-focus-ring);
+  outline-offset: 2px;
+}
+:is(.seed-side-navigation-menu-item__root, .seed-list-item__content, .seed-list-item__root):focus-visible {
+  outline-offset: -2px;
+}
+
+/* 본문으로 건너뛰기 — 키보드로 처음 탭을 누르면 보여요 */
+.skip-link {
+  position: absolute;
+  left: var(--seed-dimension-x3);
+  top: var(--seed-dimension-x3);
+  z-index: 100;
+  padding: var(--seed-dimension-x2) var(--seed-dimension-x3);
+  border-radius: var(--seed-radius-r2);
+  background: var(--seed-color-bg-neutral-inverted);
+  color: var(--seed-color-fg-neutral-inverted);
+  font-weight: var(--seed-font-weight-bold);
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+.skip-link:focus-visible {
+  transform: none;
+}
+
+/* 본문 폭에 맞춰 바뀌는 곳 — 화면 폭이 아니라 사이드바를 뺀 실제 폭으로 판단해요 (태블릿) */
+.cq {
+  container-type: inline-size;
+}
+@container (max-width: 720px) {
+  .edit-grid--preview-last {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .edit-grid--preview-last .edit-grid__preview {
+    position: static;
+  }
+  .edit-grid--preview-last .edit-grid__preview[data-empty="true"] {
+    display: none;
+  }
+  .edit-grid--preview-last .phone__body {
+    min-height: 0;
+  }
+}
+.log-list {
+  display: none;
+}
+@container (max-width: 640px) {
+  .log-table {
+    display: none;
+  }
+  .log-list {
+    display: block;
+  }
+}
+
+/* 서버와 연결이 끊겼을 때 화면 위 알림 */
+.offline-bar {
+  position: fixed;
+  top: calc(var(--seed-dimension-x3) + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: var(--seed-dimension-x2);
+  max-width: calc(100vw - var(--seed-dimension-x8));
+  padding: var(--seed-dimension-x2) var(--seed-dimension-x4) var(--seed-dimension-x2) var(--seed-dimension-x3);
+  border-radius: var(--seed-radius-full);
+  background: var(--seed-color-bg-critical-solid);
+  color: var(--seed-color-palette-static-white);
+  font-size: var(--seed-font-size-t4);
+  font-weight: var(--seed-font-weight-bold);
+  box-shadow: var(--seed-shadow-s3);
+  white-space: nowrap;
+}
+
+/* 추이 그래프 빈 상태 */
+.chart-empty {
+  position: absolute;
+  top: 28px;
+  bottom: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.chart-empty > span {
+  padding: var(--seed-dimension-x1_5) var(--seed-dimension-x3);
+  border-radius: var(--seed-radius-r2);
+  background: var(--seed-color-bg-layer-default);
+  color: var(--seed-color-fg-neutral-subtle);
+  font-size: var(--seed-font-size-t3);
+  line-height: var(--seed-line-height-t3);
+  text-align: center;
+}

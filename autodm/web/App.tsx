@@ -10,7 +10,9 @@ import {
   IconTrophyLine,
 } from "@karrotmarket/react-monochrome-icon";
 import { HStack, Icon, Layout, Text, VStack, useBreakpoint, Snackbar } from "@seed-design/react";
+import { useEffect } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { ProgressCircle } from "seed-design/ui/progress-circle";
 import { Badge } from "seed-design/ui/badge";
 import {
   SideNavigationContent,
@@ -24,7 +26,8 @@ import {
   SideNavigationTrigger,
 } from "seed-design/ui/side-navigation";
 import { Avatar } from "./components/dm/Phone";
-import { Loading } from "./components/ui";
+import { EmptyState, Loading } from "./components/ui";
+import { useOffline } from "./lib/api";
 import { useAppState } from "./lib/appState";
 import { AutomationDetailPage } from "./pages/AutomationDetail";
 import { AutomationWizardPage } from "./pages/AutomationWizard";
@@ -93,6 +96,10 @@ function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <Layout.Root>
+      {/* 키보드 사용자는 메뉴 9개를 건너뛰고 바로 본문으로 */}
+      <a href="#main" className="skip-link">
+        본문으로 건너뛰기
+      </a>
       <SideNavigationProvider>
         <SideNavigationRoot>
           <SideNavigationHeader>
@@ -147,16 +154,62 @@ function Shell({ children }: { children: React.ReactNode }) {
             <SideNavigationItemButton prefixIcon={<IconGearLine />} label="설정" current={pathname === "/settings"} onClick={() => nav("/settings")} />
           </SideNavigationFooter>
         </SideNavigationRoot>
-        <SideNavigationInset>{children}</SideNavigationInset>
+        <SideNavigationInset>
+          <main id="main" tabIndex={-1} style={{ outline: "none" }}>
+            {children}
+          </main>
+        </SideNavigationInset>
       </SideNavigationProvider>
     </Layout.Root>
   );
 }
 
+/** 처음 열 때 서버에 닿지 못하면 — 끝없는 로딩 대신 이유와 다시 시도 (몇 초마다 저절로 다시 확인해요) */
+function OfflineScreen({ onRetry }: { onRetry: () => void }) {
+  useEffect(() => {
+    const t = setInterval(onRetry, 5000);
+    return () => clearInterval(t);
+  }, [onRetry]);
+  return (
+    <div className="page page--narrow">
+      <EmptyState
+        emoji="🔌"
+        title="캐롤DM 서버에 연결할 수 없어요"
+        description="PC에서 캐롤DM이 켜져 있는지 확인해 주세요. 휴대폰에서 터널 주소로 열었다면 PC가 절전 모드가 아닌지도 확인해 주세요. 연결되면 저절로 열려요."
+        action={{ label: "다시 시도", onClick: onRetry }}
+      />
+    </div>
+  );
+}
+
+/** 쓰는 도중 서버와 끊기면 화면 위에 알려요 — 다시 연결되면 저절로 사라지고 새로 불러와요 */
+function OfflineBar() {
+  const offline = useOffline();
+  const { state } = useAppState();
+  // 처음부터 못 열린 경우는 화면 전체로 알려서 띠는 띄우지 않아요
+  if (!offline || !state) return null;
+  return (
+    <div className="offline-bar" role="status" aria-live="polite">
+      <ProgressCircle size="24" tone="staticWhite" />
+      서버와 연결이 끊겼어요 · 다시 연결하는 중
+    </div>
+  );
+}
+
 export function App() {
-  const { state, needsLogin } = useAppState();
+  return (
+    <>
+      <OfflineBar />
+      <AppRoutes />
+    </>
+  );
+}
+
+function AppRoutes() {
+  const { state, needsLogin, loadError, reload } = useAppState();
   const { pathname } = useLocation();
   if (needsLogin) return <LoginPage />;
+  if (!state && loadError) return <OfflineScreen onRetry={reload} />;
   if (!state) return <Loading />;
   const connected = state.account.connected;
   if (!connected && !pathname.startsWith("/connect")) return <Navigate to="/connect" replace />;

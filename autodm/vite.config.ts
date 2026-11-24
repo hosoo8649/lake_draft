@@ -5,7 +5,7 @@ import { defineConfig } from "vite";
 const API = `http://localhost:${process.env.PORT ?? 8787}`;
 
 export default defineConfig({
-  plugins: [react(), seedDesignPlugin({ colorMode: "light-only" })],
+  plugins: [react(), seedDesignPlugin({ colorMode: "system" })],
   resolve: { tsconfigPaths: true },
   server: {
     port: 5173,

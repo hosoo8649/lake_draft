@@ -19,17 +19,20 @@ interface Ctx {
   state?: AppStateData;
   /** 바깥(터널)에서 열었는데 로그인하지 않은 상태 */
   needsLogin: boolean;
+  /** 처음 열 때 서버에 닿지 못했어요 (PC의 캐롤DM이 꺼져 있는 등) */
+  loadError: boolean;
   reload: () => Promise<void>;
   links: LinkItem[];
 }
 
-const AppCtx = createContext<Ctx>({ reload: async () => {}, links: [], needsLogin: false });
+const AppCtx = createContext<Ctx>({ reload: async () => {}, links: [], needsLogin: false, loadError: false });
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const { data, reload, error } = useApi<AppStateData>("/state");
   const links = useApi<LinkItem[]>("/links");
   const needsLogin = error?.status === 401;
-  return <AppCtx.Provider value={{ state: data, reload, links: links.data ?? [], needsLogin }}>{children}</AppCtx.Provider>;
+  const loadError = !data && !!error && !needsLogin;
+  return <AppCtx.Provider value={{ state: data, reload, links: links.data ?? [], needsLogin, loadError }}>{children}</AppCtx.Provider>;
 }
 
 export const useAppState = () => useContext(AppCtx);

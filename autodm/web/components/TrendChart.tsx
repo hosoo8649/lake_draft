@@ -124,12 +124,13 @@ export function TrendChart({ data }: { data: DailyPoint[] }) {
           );
         })}
         <line x1={pad.l} x2={W - pad.r} y1={pad.t + ih} y2={pad.t + ih} stroke="var(--seed-color-stroke-neutral-muted)" strokeWidth={1} />
-        {empty && (
-          <text x={pad.l + iw / 2} y={pad.t + ih / 2} textAnchor="middle" fontSize={13} fill="var(--seed-color-fg-neutral-subtle)">
-            아직 보낸 DM이 없어요. 자동화를 만들면 여기에 추이가 보여요
-          </text>
-        )}
       </svg>
+      {/* 빈 상태 안내는 HTML로 — 좁은 화면에서도 줄바꿈되고 축 글자와 겹치지 않아요 */}
+      {empty && (
+        <div className="chart-empty" style={{ left: `${(pad.l / W) * 100}%`, right: `${(pad.r / W) * 100}%` }}>
+          <span>아직 보낸 DM이 없어요. 자동화를 만들면 여기에 추이가 보여요</span>
+        </div>
+      )}
       {hover !== null && data[hover] && (
         <div
           role="tooltip"

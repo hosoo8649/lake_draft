@@ -107,51 +107,53 @@ export function BroadcastsPage() {
           description="댓글만 단 팬, 반응한 지 24시간이 지난 팬, 나를 팔로우만 한 팬에게는 보낼 수 없어요. 홍보용 대량 발송은 계정 제한으로 이어질 수 있으니 꼭 필요한 안내만 보내 주세요."
         />
 
-        <div className="edit-grid edit-grid--preview-last">
-          <Section title="보낼 DM">
-            <VStack gap="x5">
-              <PersonalTextArea
-                label="DM 문구"
-                value={text}
-                onChange={setText}
-                rows={5}
-              />
-              <ButtonsEditor
-                buttons={buttons}
-                max={LIMITS.buttonsPerMessage}
-                links={links}
-                onChange={setButtons}
-              />
-              {errors.length > 0 && (
-                <Text textStyle="t3Regular" color="fg.critical">
-                  {errors[0]}
-                </Text>
-              )}
-              <HStack gap="x2" align="center" wrap>
-                <ActionButton
-                  variant="brandSolid"
-                  size="large"
-                  disabled={!canSend}
-                  loading={sending}
-                  onClick={send}
-                >
-                  <PrefixIcon svg={<IconPaperplaneLine />} />
-                  {count > 0
-                    ? `${fmtNumber(count)}명에게 보내기`
-                    : "보낼 수 있는 팬이 없어요"}
-                </ActionButton>
-              </HStack>
-            </VStack>
-          </Section>
+        <div className="cq">
+          <div className="edit-grid edit-grid--preview-last">
+            <Section title="보낼 DM">
+              <VStack gap="x5">
+                <PersonalTextArea
+                  label="DM 문구"
+                  value={text}
+                  onChange={setText}
+                  rows={5}
+                />
+                <ButtonsEditor
+                  buttons={buttons}
+                  max={LIMITS.buttonsPerMessage}
+                  links={links}
+                  onChange={setButtons}
+                />
+                {errors.length > 0 && (
+                  <Text textStyle="t3Regular" color="fg.critical">
+                    {errors[0]}
+                  </Text>
+                )}
+                <HStack gap="x2" align="center" wrap>
+                  <ActionButton
+                    variant="brandSolid"
+                    size="large"
+                    disabled={!canSend}
+                    loading={sending}
+                    onClick={send}
+                  >
+                    <PrefixIcon svg={<IconPaperplaneLine />} />
+                    {count > 0
+                      ? `${fmtNumber(count)}명에게 보내기`
+                      : "보낼 수 있는 팬이 없어요"}
+                  </ActionButton>
+                </HStack>
+              </VStack>
+            </Section>
 
-          {/* 휴대폰에서는 문구를 쓰기 시작하면 미리보기를 보여요 */}
-          <div className="edit-grid__preview" data-empty={!text.trim()}>
-            <Phone username={state.account.username} caption="팬이 받을 DM">
-              <MessageBubble
-                message={text.trim() ? message : { ...message, text: "" }}
-                username={state.account.username}
-              />
-            </Phone>
+            {/* 휴대폰에서는 문구를 쓰기 시작하면 미리보기를 보여요 */}
+            <div className="edit-grid__preview" data-empty={!text.trim()}>
+              <Phone username={state.account.username} caption="팬이 받을 DM">
+                <MessageBubble
+                  message={text.trim() ? message : { ...message, text: "" }}
+                  username={state.account.username}
+                />
+              </Phone>
+            </div>
           </div>
         </div>
 
