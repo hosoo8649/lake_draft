@@ -100,6 +100,20 @@ npm run dev
    - 웹훅 필드: `comments`, `messages`, `messaging_postbacks`, `messaging_seen`
 5. 앱의 **연동·계정 → 인스타그램 연동하기**. 권한 화면에서 **모두 허용**해 주세요.
 
+#### 새로 만든 Meta 앱 (통합 로그인)
+
+2026년 10월 이후 만든 앱은 *API setup with Instagram login*이 없고 **API setup with Unified login**만 있어요(별도의 Instagram 앱 ID가 없어서 위 방식으로는 “Invalid platform app”이 나요). 이때는:
+
+- 앱에 **비즈니스 포트폴리오**를 연결해요 (통합 로그인에 필요).
+- *1. 앱 구성*에서 구성을 만들고(권한: `instagram_basic`, `instagram_manage_messages`, `instagram_manage_comments` 필수, `instagram_content_publish`·`instagram_manage_insights` 권장), 리디렉션 URL `…/auth/instagram/callback`을 등록해요.
+- `.env`
+  ```env
+  IG_APP_ID=…            # Meta 앱 ID (로그인 URL의 client_id)
+  IG_APP_SECRET=…        # 앱 설정 › 기본 설정 › 앱 시크릿 코드
+  IG_LOGIN_CONFIG_ID=…   # 구성 ID
+  ```
+- 웹훅은 *3. Webhooks 구성*에서 같은 콜백 URL·확인 토큰·필드로 등록해요. 로그인하면 공유한 인스타그램 계정을 `/me/assigned_instagram_accounts`에서 찾아 연결하고, API는 `graph.facebook.com`으로 호출해요. 기본 구성의 토큰은 만료되지 않아요.
+
 **알아 두세요**
 - Meta 앱이 *개발 모드*일 때는 앱에 역할(관리자·테스터)로 등록된 계정의 이벤트만 받아요. 다른 사람 댓글에 반응하려면 앱 검수(고급 액세스)와 *라이브 모드*가 필요해요.
 - 이 앱이 꺼져 있으면 웹훅을 못 받아요. **PC가 켜져 있는 동안만 DM이 나가요** → 24시간 운영은 아래 4번처럼 서버로 옮기세요.

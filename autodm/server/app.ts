@@ -167,7 +167,7 @@ export function createApp(store: Store, opts: { now?: () => number; sendMail?: S
         connected: true,
         mode: "live",
         accessToken: token,
-        tokenExpiresAt: now() + expiresIn * 1000,
+        tokenExpiresAt: expiresIn > 0 ? now() + expiresIn * 1000 : undefined,
         ...profile,
         connectedAt: now(),
         needsReauth: false,

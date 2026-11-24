@@ -1,4 +1,4 @@
-import { config } from "../config";
+import { config, unifiedLogin } from "../config";
 import type { Comment, MediaType, Post } from "../../shared/types";
 import {
   describeGraphError,
@@ -9,7 +9,11 @@ import {
   type SendResult,
 } from "./gateway";
 
-const GRAPH = () => `https://graph.instagram.com/${config.graphVersion}`;
+/** Instagram 로그인은 graph.instagram.com, 통합 로그인(시스템 사용자 토큰)은 graph.facebook.com */
+const GRAPH = () =>
+  unifiedLogin()
+    ? `https://graph.facebook.com/${config.graphVersion}`
+    : `https://graph.instagram.com/${config.graphVersion}`;
 
 class GraphError extends Error {
   constructor(public info: { code?: number; error_subcode?: number; message?: string }) {
@@ -168,6 +172,7 @@ export class LiveGateway implements Gateway {
   }
 
   async fetchProfile(): Promise<IGProfile> {
+    if (unifiedLogin()) return this.fetchProfileUnified();
     const me = await graph<{
       user_id?: string;
       id: string;
@@ -187,8 +192,45 @@ export class LiveGateway implements Gateway {
     };
   }
 
+  /**
+   * 통합 로그인: 토큰의 /me 는 인스타그램 계정이 아니라 비즈니스 시스템 사용자예요.
+   * 로그인할 때 공유한 인스타그램 계정을 /me/assigned_instagram_accounts 에서 찾아요.
+   */
+  private async fetchProfileUnified(): Promise<IGProfile> {
+    let igId = this.igUserId();
+    if (!igId) {
+      const res = await graph<{ data?: { id: string; username?: string }[] }>(
+        this.token(),
+        "GET",
+        "/me/assigned_instagram_accounts",
+        { fields: "id,username" },
+      );
+      const first = res.data?.[0];
+      if (!first) throw new Error("연동할 인스타그램 계정을 찾지 못했어요. 로그인할 때 인스타그램 계정을 선택(공유)해 주세요");
+      if ((res.data?.length ?? 0) > 1)
+        console.warn(`[oauth] 공유된 인스타그램 계정이 ${res.data!.length}개예요. 첫 번째(@${first.username ?? first.id})로 연동해요`);
+      igId = first.id;
+    }
+    const p = await graph<{
+      id: string;
+      username: string;
+      name?: string;
+      profile_picture_url?: string;
+      followers_count?: number;
+    }>(this.token(), "GET", `/${igId}`, { fields: "id,username,name,profile_picture_url,followers_count" });
+    return {
+      igUserId: p.id,
+      username: p.username,
+      name: p.name,
+      profilePictureUrl: p.profile_picture_url,
+      followersCount: p.followers_count,
+    };
+  }
+
   async fetchPosts(): Promise<Post[]> {
-    const res = await graph<{ data: GraphMedia[] }>(this.token(), "GET", "/me/media", {
+    const owner = unifiedLogin() ? this.igUserId() : "me";
+    if (!owner) throw new GraphError({ code: 190, message: "not connected" });
+    const res = await graph<{ data: GraphMedia[] }>(this.token(), "GET", `/${owner}/media`, {
       fields: MEDIA_FIELDS,
       limit: "50",
     });
@@ -241,6 +283,18 @@ function fail(e: unknown): SendResult {
 /* ───────────── OAuth (Instagram 로그인) ───────────── */
 
 export function authorizeUrl(redirectUri: string, state: string, scopes: string[], forceReauth: boolean): string {
+  if (unifiedLogin()) {
+    // 통합 로그인: 권한은 구성(config_id)에 들어 있어서 scope를 보내지 않아요
+    const u = new URL("https://www.facebook.com/dialog/oauth");
+    u.searchParams.set("client_id", config.igAppId);
+    u.searchParams.set("config_id", config.igLoginConfigId);
+    u.searchParams.set("redirect_uri", redirectUri);
+    u.searchParams.set("response_type", "code");
+    u.searchParams.set("override_default_response_type", "true");
+    u.searchParams.set("state", state);
+    if (forceReauth) u.searchParams.set("prompt", "login");
+    return u.toString();
+  }
   const u = new URL("https://www.instagram.com/oauth/authorize");
   u.searchParams.set("client_id", config.igAppId);
   u.searchParams.set("redirect_uri", redirectUri);
@@ -251,7 +305,22 @@ export function authorizeUrl(redirectUri: string, state: string, scopes: string[
   return u.toString();
 }
 
+/** expiresIn 이 0이면 만료되지 않는 토큰(통합 로그인 기본 구성)이에요 */
 export async function exchangeCode(code: string, redirectUri: string): Promise<{ token: string; expiresIn: number }> {
+  if (unifiedLogin()) {
+    const u = new URL(`https://graph.facebook.com/${config.graphVersion}/oauth/access_token`);
+    u.searchParams.set("client_id", config.igAppId);
+    u.searchParams.set("client_secret", config.igAppSecret);
+    u.searchParams.set("redirect_uri", redirectUri);
+    u.searchParams.set("code", code);
+    const res = (await (await fetch(u)).json()) as {
+      access_token?: string;
+      expires_in?: number;
+      error?: { message?: string };
+    };
+    if (!res.access_token) throw new Error(res.error?.message ?? "토큰 발급 실패");
+    return { token: res.access_token, expiresIn: res.expires_in && res.expires_in > 0 ? res.expires_in : 0 };
+  }
   const form = new URLSearchParams({
     client_id: config.igAppId,
     client_secret: config.igAppSecret,
@@ -273,6 +342,8 @@ export async function exchangeCode(code: string, redirectUri: string): Promise<{
 }
 
 export async function refreshToken(token: string): Promise<{ token: string; expiresIn: number } | null> {
+  // 통합 로그인의 시스템 사용자 토큰은 갱신 API가 따로 없어요 (만료되는 구성이면 다시 연동)
+  if (unifiedLogin()) return null;
   const u = new URL("https://graph.instagram.com/refresh_access_token");
   u.searchParams.set("grant_type", "ig_refresh_token");
   u.searchParams.set("access_token", token);

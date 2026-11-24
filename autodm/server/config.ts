@@ -14,6 +14,12 @@ export const config = {
   /** Meta(Instagram) 앱 설정 — 비어 있으면 데모 모드로만 동작 */
   igAppId: process.env.IG_APP_ID ?? "",
   igAppSecret: process.env.IG_APP_SECRET ?? "",
+  /**
+   * 통합 로그인(Unified login) 구성 ID. 2026년 10월 이후 새로 만든 Meta 앱은 별도의 Instagram 앱 ID가 없고
+   * "API setup with Unified login"만 제공해요. 이 값을 넣으면 IG_APP_ID/IG_APP_SECRET에 Meta 앱 ID·시크릿을 쓰고
+   * 페이스북 로그인 창(config_id) + graph.facebook.com 으로 연동해요. 비우면 기존 Instagram 로그인 방식.
+   */
+  igLoginConfigId: process.env.IG_LOGIN_CONFIG_ID ?? "",
   webhookVerifyToken: process.env.WEBHOOK_VERIFY_TOKEN ?? "",
   /** 외부에서 접근 가능한 주소 (웹훅·OAuth 리다이렉트·클릭 추적) */
   publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? "").replace(/\/$/, ""),
@@ -24,6 +30,9 @@ export const config = {
 };
 
 export const liveConfigured = () => Boolean(config.igAppId && config.igAppSecret);
+
+/** 통합 로그인(config_id) 방식인지 */
+export const unifiedLogin = () => Boolean(config.igLoginConfigId);
 
 export const IG_SCOPES = [
   "instagram_business_basic",

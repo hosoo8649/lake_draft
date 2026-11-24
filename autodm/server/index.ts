@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import express from "express";
 import { createApp } from "./app";
-import { config, liveConfigured } from "./config";
+import { config, liveConfigured, unifiedLogin } from "./config";
 import { Store } from "./store";
 
 const store = new Store(config.dataFile);
@@ -12,7 +12,8 @@ const { app, start, auth } = createApp(store);
 const dist = path.resolve("dist");
 if (fs.existsSync(path.join(dist, "index.html"))) {
   app.use(express.static(dist));
-  app.get(/^\/(?!api|r\/|webhooks|auth|uploads).*/, (_req, res) => res.sendFile(path.join(dist, "index.html")));
+  // root 옵션: 설치 경로에 점(.)으로 시작하는 폴더(예: .claude)가 있어도 숨김 파일로 막히지 않게
+  app.get(/^\/(?!api|r\/|webhooks|auth|uploads).*/, (_req, res) => res.sendFile("index.html", { root: dist }));
 }
 
 const stop = start();
@@ -21,7 +22,7 @@ const server = app.listen(config.port, config.host, () => {
   console.log(`\n  ▶ 캐롤DM 서버: http://localhost:${config.port}  (${config.host === "127.0.0.1" ? "이 PC에서만 접속" : `${config.host}에서 접속 허용`})`);
   console.log(`  ▶ 바깥(터널·다른 기기)에서 접속할 때 관리자 비밀번호: ${fromEnv ? "(.env의 ADMIN_PASSWORD)" : password}  — 이 PC의 localhost에서는 필요 없어요`);
   console.log(`  ▶ 데이터 파일: ${config.dataFile}`);
-  console.log(`  ▶ 실제 인스타그램 연동: ${liveConfigured() ? "사용 가능" : "미설정 (.env의 IG_APP_ID / IG_APP_SECRET) — 데모 모드로 체험할 수 있어요"}`);
+  console.log(`  ▶ 실제 인스타그램 연동: ${liveConfigured() ? (unifiedLogin() ? "사용 가능 (통합 로그인)" : "사용 가능 (Instagram 로그인)") : "미설정 (.env의 IG_APP_ID / IG_APP_SECRET) — 데모 모드로 체험할 수 있어요"}`);
   if (config.publicBaseUrl) console.log(`  ▶ 웹훅 주소: ${config.publicBaseUrl}/webhooks/instagram`);
   console.log("");
 });
