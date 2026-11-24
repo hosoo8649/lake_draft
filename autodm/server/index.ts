@@ -18,7 +18,7 @@ if (fs.existsSync(path.join(dist, "index.html"))) {
 const stop = start();
 const server = app.listen(config.port, config.host, () => {
   const { password, fromEnv } = auth.ensureSecrets();
-  console.log(`\n  ▶ AutoDM 서버: http://localhost:${config.port}  (${config.host === "127.0.0.1" ? "이 PC에서만 접속" : `${config.host}에서 접속 허용`})`);
+  console.log(`\n  ▶ 캐롤DM 서버: http://localhost:${config.port}  (${config.host === "127.0.0.1" ? "이 PC에서만 접속" : `${config.host}에서 접속 허용`})`);
   console.log(`  ▶ 바깥(터널·다른 기기)에서 접속할 때 관리자 비밀번호: ${fromEnv ? "(.env의 ADMIN_PASSWORD)" : password}  — 이 PC의 localhost에서는 필요 없어요`);
   console.log(`  ▶ 데이터 파일: ${config.dataFile}`);
   console.log(`  ▶ 실제 인스타그램 연동: ${liveConfigured() ? "사용 가능" : "미설정 (.env의 IG_APP_ID / IG_APP_SECRET) — 데모 모드로 체험할 수 있어요"}`);

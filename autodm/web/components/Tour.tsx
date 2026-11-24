@@ -39,7 +39,7 @@ const SLIDES = [
 
 export const TOUR_KEY = "autodm:tour-seen";
 
-/** 오토DM 둘러보기 */
+/** 캐롤DM 둘러보기 */
 export function Tour(props: { open: boolean; onClose: () => void }) {
   const nav = useNavigate();
   const [i, setI] = useState(0);
@@ -54,7 +54,7 @@ export function Tour(props: { open: boolean; onClose: () => void }) {
     <Modal
       open={props.open}
       onClose={close}
-      title="오토DM 둘러보기"
+      title="캐롤DM 둘러보기"
       footer={
         <HStack gap="x2" width="full">
           {i > 0 && (

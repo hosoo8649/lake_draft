@@ -112,7 +112,9 @@ export function StatTile(props: {
       <Text textStyle="t3Medium" color="fg.neutralMuted">
         {props.label}
       </Text>
-      <Text textStyle="t10Bold">{props.value}</Text>
+      <Text textStyle="t10Bold" className="stat-value">
+        {props.value}
+      </Text>
       {props.hint && (
         <Text textStyle="t2Regular" color="fg.neutralSubtle">
           {props.hint}

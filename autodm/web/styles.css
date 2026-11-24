@@ -1,3 +1,41 @@
+/* ───────────── 글꼴: Pretendard를 먼저 쓰고, 없으면 시스템 글꼴 ───────────── */
+:root:root {
+  --seed-font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, "Apple SD Gothic Neo",
+    "Segoe UI", Roboto, "Noto Sans KR", "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+    "Noto Color Emoji";
+}
+
+body {
+  font-feature-settings: "ss05", "ss06";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* 숫자 지표는 자릿수가 흔들리지 않게 */
+.stat-value,
+.code-chip,
+.secret-box,
+.chart text {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 로고 */
+.brand-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--seed-radius-r2);
+  background: var(--seed-color-bg-brand-solid);
+  color: var(--seed-color-palette-static-white);
+  flex-shrink: 0;
+}
+
+.brand-name {
+  letter-spacing: -0.02em;
+}
+
 /* 전역 스타일 — SEED 토큰(var(--seed-*))만 사용해요 */
 
 body {

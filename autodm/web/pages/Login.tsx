@@ -27,7 +27,7 @@ export function LoginPage() {
       <div className="hero">
         <div className="hero__emoji">🔒</div>
         <Text as="h1" textStyle="t9Bold">
-          관리자 로그인
+          캐롤DM 관리자 로그인
         </Text>
         <Text as="p" textStyle="t4Regular" color="fg.neutralMuted" style={{ marginTop: 8 }}>
           이 PC가 아닌 곳(터널 주소·다른 기기)에서 열었어요. 관리자 비밀번호를 넣어 주세요.

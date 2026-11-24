@@ -155,7 +155,7 @@ export function SettingsPage() {
               ...(state.account.mode === "demo"
                 ? [{ title: "시뮬레이터", detail: "팬이 되어 댓글·DM·버튼을 눌러 보며 자동화를 시험해요", to: "/simulator" }]
                 : []),
-              { title: "오토DM 둘러보기", detail: "주요 화면과 기능을 한 장씩 다시 봐요", to: "/?tour=1" },
+              { title: "캐롤DM 둘러보기", detail: "주요 화면과 기능을 한 장씩 다시 봐요", to: "/?tour=1" },
               { title: "이용 가이드", detail: "연동부터 자동 DM 만들기·관리·추첨까지 시작 순서", to: "/help?tab=guide" },
               { title: "DM 발송 문제", detail: "DM이 전송되지 않을 때 확인할 것들", to: "/help?tab=dm" },
               { title: "연동 문제", detail: "연동이 안 되거나 다른 계정으로 연동됐을 때", to: "/help?tab=connect" },

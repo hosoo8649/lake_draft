@@ -63,7 +63,7 @@ function getOnce(url: URL, signal: AbortSignal, maxBytes: number): Promise<{ sta
     const mod = url.protocol === "https:" ? https : http;
     const req = mod.request(
       url,
-      { method: "GET", lookup: safeLookup, signal, headers: { "User-Agent": "AutoDM-LinkPreview/1.0", Accept: "text/html" } },
+      { method: "GET", lookup: safeLookup, signal, headers: { "User-Agent": "CarolDM-LinkPreview/1.0", Accept: "text/html" } },
       (res) => {
         const status = res.statusCode ?? 0;
         const type = String(res.headers["content-type"] ?? "");

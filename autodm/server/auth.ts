@@ -94,7 +94,7 @@ export function createAuth(store: Store) {
 
   const guardPage = (req: Request, res: Response, next: NextFunction) => {
     if (isAuthed(req)) return next();
-    res.status(401).send("로그인이 필요해요. 오토DM 화면에서 관리자 비밀번호로 로그인한 뒤 다시 시도해 주세요.");
+    res.status(401).send("로그인이 필요해요. 캐롤DM 화면에서 관리자 비밀번호로 로그인한 뒤 다시 시도해 주세요.");
   };
 
   // 전체 실패 횟수 (주소 헤더를 바꿔 가며 시도해도 막히도록)

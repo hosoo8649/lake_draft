@@ -95,8 +95,10 @@ function Shell({ children }: { children: React.ReactNode }) {
         <SideNavigationRoot>
           <SideNavigationHeader>
             <HStack gap="x2" align="center" style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ fontSize: 20 }}>💌</span>
-              <Text textStyle="t5Bold">오토DM</Text>
+              <BrandMark />
+              <Text textStyle="t6Bold" className="brand-name">
+                캐롤DM
+              </Text>
             </HStack>
             <SideNavigationTrigger />
           </SideNavigationHeader>
@@ -184,5 +186,20 @@ export function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>
+  );
+}
+
+/** 캐롤DM 로고 — 말풍선 안의 음표 */
+function BrandMark() {
+  return (
+    <span className="brand-mark" aria-hidden>
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+        <path
+          d="M4 6.5A3.5 3.5 0 0 1 7.5 3h9A3.5 3.5 0 0 1 20 6.5v6a3.5 3.5 0 0 1-3.5 3.5H11l-4.2 3.6c-.5.4-1.3 0-1.3-.6V16A3.5 3.5 0 0 1 4 12.5z"
+          fill="currentColor"
+        />
+        <path d="M13.6 6.2v4.9a1.6 1.6 0 1 1-1-1.5V7.4l-2 .5v4.1a1.6 1.6 0 1 1-1-1.5V7.1z" fill="var(--seed-color-bg-brand-solid)" />
+      </svg>
+    </span>
   );
 }

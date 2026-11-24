@@ -1,4 +1,6 @@
 import "@seed-design/css/base.css";
+// Pretendard — 앱 안에 넣어 둔 글꼴 (필요한 글자 묶음만 불러와요)
+import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
 import "./styles.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
