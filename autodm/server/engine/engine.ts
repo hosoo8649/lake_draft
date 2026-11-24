@@ -32,7 +32,14 @@ export interface EngineOptions {
   trackingBase: () => { base: string; track: boolean };
   /** 올린 이미지(/uploads/...)를 바깥에서 볼 수 있는 주소로 바꿀 때 쓰는 기본 주소 */
   assetBase?: () => string;
+  /** 제한 신호·연결 끊김을 바깥(메일)으로 알릴 때 */
+  onAlert?: (a: EngineAlert) => void;
 }
+
+/** 운영자에게 알려야 하는 일 */
+export type EngineAlert =
+  | { type: "risk"; level: number; reason: string; autoPaused: boolean }
+  | { type: "reauth" };
 
 /** 보낸 메시지의 버튼 id → 링크 */
 function collectLinks(a: Automation, kind: DeliveryKind): Record<string, string> {
@@ -522,11 +529,24 @@ export class Engine {
     // 한 번 막히면 같은 신호가 연달아 오므로 10분 안의 신호는 하나로 셉니다
     if (opts.dedupe !== false && last && now - last.at < RISK_DEDUPE_MS) return;
     risk.signals = [...risk.signals.filter((x) => x.at >= now - SAFETY_DEFAULTS.riskWindowMs), { at: now, reason }].slice(-10);
-    if (this.riskLevel() >= 3 && !this.db.settings.replyPaused) {
+    const level = this.riskLevel();
+    let autoPaused = false;
+    if (level >= 3 && !this.db.settings.replyPaused) {
       this.db.settings.replyPaused = true;
       risk.autoPausedReplies = true;
+      autoPaused = true;
     }
     this.store.changed();
+    this.opts.onAlert?.({ type: "risk", level, reason, autoPaused });
+  }
+
+  /** 인스타그램 연결이 끊겼어요 — 처음 알았을 때 한 번만 알려요 */
+  markNeedsReauth(): void {
+    const acc = this.db.account;
+    if (!acc || acc.needsReauth) return;
+    acc.needsReauth = true;
+    this.store.changed();
+    this.opts.onAlert?.({ type: "reauth" });
   }
 
   /** 다음 답글까지 기다릴 시간 — 설정한 범위에서 무작위, 제한 신호가 있으면 10분 */
@@ -773,7 +793,7 @@ export class Engine {
       log.error = result.error;
       if (result.recipient) log.recipientIssue = true;
       if (result.risk) this.registerRisk(result.error);
-      if (result.authError && db.account) db.account.needsReauth = true;
+      if (result.authError) this.markNeedsReauth();
       if (result.retryable && item.attempts < MAX_ATTEMPTS) {
         log.status = "retrying";
         item.notBefore = this.now() + Math.min(60_000 * 2 ** item.attempts, 30 * 60_000);
@@ -864,7 +884,7 @@ export class Engine {
       log.error = result.error;
       if (result.recipient) log.recipientIssue = true;
       if (result.risk) this.registerRisk(result.error);
-      if (result.authError && db.account) db.account.needsReauth = true;
+      if (result.authError) this.markNeedsReauth();
       if (result.retryable && item.attempts < MAX_ATTEMPTS && this.inWindow(item.userId)) {
         log.status = "retrying";
         item.notBefore = this.now() + Math.min(60_000 * 2 ** item.attempts, 30 * 60_000);

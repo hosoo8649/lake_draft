@@ -7,6 +7,7 @@ import { DAY, HOUR, LIMITS, MESSAGING_WINDOW_MS } from "../shared/limits";
 import type { Broadcast, DMButton, Post, Settings } from "../shared/types";
 import { glen, isPublicHttpsUrl, normalizeUrl, validateMessage } from "../shared/validation";
 import { AiError, aiAvailable, generateVariants } from "./ai";
+import { Notifier, isEmail, mailCreds, mailError, publicSettings, type SendMail } from "./notify";
 import { IG_SCOPES, config, liveConfigured } from "./config";
 import { Engine } from "./engine/engine";
 import { DEMO_PROFILE, DemoGateway, randomSampleComment, seedDemo } from "./instagram/demo";
@@ -19,7 +20,7 @@ import { HttpError, Services } from "./services";
 import { emptyDB, type Store } from "./store";
 import { homeSummary, publicAccount, toView } from "./views";
 
-export function createApp(store: Store, opts: { now?: () => number } = {}) {
+export function createApp(store: Store, opts: { now?: () => number; sendMail?: SendMail } = {}) {
   const now = opts.now ?? Date.now;
   const db = () => store.db;
 
@@ -39,8 +40,16 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
     return { templates: db().templates, links: db().links, replySets: db().replySets, settings };
   };
 
+  // 메일 알림 — 바깥에서 열 수 있는 주소가 있으면 설정 화면 링크를 넣어요
+  const notifier = new Notifier(store, {
+    send: opts.sendMail,
+    now,
+    settingsUrl: () => (publicBase() ? `${publicBase()}/settings#safety` : ""),
+  });
+
   const engine = new Engine(store, gateway, {
     now,
+    onAlert: (a) => void notifier.alert(a),
     trackingBase: () => {
       if (db().account?.mode !== "live") return { base: "", track: true };
       const base = publicBase();
@@ -189,7 +198,7 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
   api.get("/state", (_req, res) => {
     res.json({
       account: publicAccount(db().account),
-      settings: db().settings,
+      settings: publicSettings(db().settings),
       liveAvailable: liveConfigured(),
       publicBaseUrl: publicBase(),
       webhookUrl: publicBase() ? `${publicBase()}/webhooks/instagram` : "",
@@ -418,8 +427,62 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
     if (typeof body.dmSpread === "boolean") s.dmSpread = body.dmSpread;
     // 직접 답글을 다시 켜면 자동 멈춤 표시를 지워요
     if (body.replyPaused === false) s.risk.autoPausedReplies = false;
+    if (body.alerts && typeof body.alerts === "object") patchAlerts(s, body.alerts);
     store.changed();
-    res.json(s);
+    res.json(publicSettings(s));
+  });
+
+  /** 메일 알림 설정 — 앱 비밀번호는 받기만 하고 내보내지 않아요 */
+  function patchAlerts(s: Settings, a: Partial<Settings["alerts"]>) {
+    const cur = s.alerts;
+    let credsChanged = false;
+    if (typeof a.gmailUser === "string") {
+      const v = a.gmailUser.trim().toLowerCase();
+      if (v && !isEmail(v)) throw new HttpError(400, "Gmail 주소를 확인해 주세요 (예: name@gmail.com)");
+      if (v !== cur.gmailUser) {
+        credsChanged = true;
+        // 다른 계정으로 바꾸면 예전 계정의 앱 비밀번호는 쓰지 않아요
+        cur.gmailAppPassword = undefined;
+      }
+      cur.gmailUser = v;
+      // 주소를 지우면 앱 비밀번호도 함께 지워요
+      if (!v) cur.gmailAppPassword = undefined;
+    }
+    if (typeof a.gmailAppPassword === "string") {
+      const v = a.gmailAppPassword.replace(/\s/g, "");
+      if (v && !/^[a-z0-9]{16}$/i.test(v)) throw new HttpError(400, "앱 비밀번호는 16자리예요. Google에서 받은 그대로 붙여 넣어 주세요 (띄어쓰기는 괜찮아요)");
+      if (v) {
+        cur.gmailAppPassword = v;
+        credsChanged = true;
+      }
+    }
+    if (typeof a.to === "string") {
+      const v = a.to.trim();
+      if (v && !isEmail(v)) throw new HttpError(400, "받는 주소를 확인해 주세요");
+      cur.to = v;
+    }
+    if (credsChanged) {
+      cur.lastError = undefined;
+      cur.lastErrorAt = undefined;
+    }
+    if (typeof a.email === "boolean") {
+      if (a.email && !mailCreds(s)) throw new HttpError(400, "먼저 Gmail 주소와 앱 비밀번호를 넣어 주세요");
+      cur.email = a.email;
+    }
+    // 계정을 다 지우면 알림도 꺼요
+    if (!mailCreds(s)) cur.email = false;
+  }
+
+  /* 테스트 메일 */
+  api.post("/alerts/test", async (_req, res) => {
+    const creds = mailCreds(db().settings);
+    if (!creds) throw new HttpError(400, "먼저 Gmail 주소와 앱 비밀번호를 넣어 주세요");
+    try {
+      await notifier.test();
+    } catch (e) {
+      throw new HttpError(502, mailError(e));
+    }
+    res.json({ ok: true, to: creds.to });
   });
 
   /* 제한 신호 — 문제가 해결됐다고 판단하면 기록을 지워 원래 속도로 돌아가요 */
@@ -428,7 +491,7 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
     if (s.risk.autoPausedReplies) s.replyPaused = false;
     s.risk = { signals: [] };
     store.changed();
-    res.json(s);
+    res.json(publicSettings(s));
   });
 
   /* AI 문구 변형 (ANTHROPIC_API_KEY가 있을 때만) */
@@ -634,7 +697,7 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
   /** 제한 신호 체험: 인스타그램이 발송을 제한했다고 가정해요 */
   api.post("/demo/risk-signal", demoOnly, (_req, res) => {
     engine.registerRisk("체험: 인스타그램이 잠시 발송을 제한했어요", { dedupe: false });
-    res.json({ level: engine.riskLevel(), settings: db().settings });
+    res.json({ level: engine.riskLevel(), settings: publicSettings(db().settings) });
   });
 
   /** 시간 여행: 예약 발송을 바로 확인하고 싶을 때 */
@@ -682,7 +745,7 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
       acc.accessToken = r.token;
       acc.tokenExpiresAt = now() + r.expiresIn * 1000;
     } else if (acc.tokenExpiresAt < now()) {
-      acc.needsReauth = true;
+      engine.markNeedsReauth();
     }
     store.changed();
   }

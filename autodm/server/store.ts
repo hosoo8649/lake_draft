@@ -105,6 +105,7 @@ export function emptyDB(): DB {
       replyPerHour: SAFETY_DEFAULTS.replyPerHour,
       dmSpread: SAFETY_DEFAULTS.dmSpread,
       risk: { signals: [] },
+      alerts: { email: false, gmailUser: "", to: "" },
     },
     contacts: {},
     broadcasts: [],
@@ -131,6 +132,7 @@ export class Store {
       const base = emptyDB();
       const settings = { ...base.settings, ...parsed.settings };
       if (!settings.risk?.signals) settings.risk = { signals: [] };
+      settings.alerts = { ...base.settings.alerts, ...settings.alerts };
       return { ...base, ...parsed, settings };
     } catch (e) {
       // 파일이 깨졌으면 덮어쓰기 전에 따로 보관해 둬요 (토큰·자동화·기록을 잃지 않도록)

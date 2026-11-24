@@ -317,6 +317,30 @@ export interface Settings {
   dmSpread: boolean;
   /** 인스타그램 제한 신호 감지 상태 */
   risk: RiskState;
+  /** 메일 알림 (Gmail) */
+  alerts: AlertSettings;
+}
+
+/**
+ * 메일 알림 — 제한 신호·답글 자동 멈춤·인스타그램 연결 끊김을 Gmail로 보내요.
+ * 앱 비밀번호는 서버에만 두고 화면·API 응답에는 절대 내보내지 않아요 (hasPassword로만 알려요).
+ */
+export interface AlertSettings {
+  /** 메일로 알림 받기 */
+  email: boolean;
+  /** 보내는 Gmail 주소 */
+  gmailUser: string;
+  /** Gmail 앱 비밀번호 (16자리) — 서버에만 저장 */
+  gmailAppPassword?: string;
+  /** 받는 주소 (비우면 보내는 주소로) */
+  to: string;
+  /** 화면용: 앱 비밀번호를 넣었는지 */
+  hasPassword?: boolean;
+  /** 화면용: .env(GMAIL_USER·GMAIL_APP_PASSWORD)로 정해져 있는지 */
+  fromEnv?: boolean;
+  lastSentAt?: number;
+  lastError?: string;
+  lastErrorAt?: number;
 }
 
 /**

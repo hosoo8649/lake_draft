@@ -10,6 +10,7 @@ import type { Settings } from "@shared/types";
 import { isPublicHttpsUrl } from "@shared/validation";
 import { useConfirm, useErrorToast, useToast } from "../components/feedback";
 import { TextInput } from "../components/fields";
+import { MailAlertsSection } from "../components/MailAlerts";
 import { RiskStatus } from "../components/RiskNotice";
 import { IconBtn, Loading, PageHeader, Section } from "../components/ui";
 import { api, useApi } from "../lib/api";
@@ -85,6 +86,10 @@ export function SettingsPage() {
 
         <div id="safety" style={{ scrollMarginTop: 16 }}>
           <SafetySection />
+        </div>
+
+        <div id="alerts" style={{ scrollMarginTop: 16 }}>
+          <MailAlertsSection />
         </div>
 
         <Section title="공개 주소 (실제 인스타그램 연동용)" description="인스타그램 로그인 리디렉션·웹훅·버튼 클릭 추적에 쓰는 HTTPS 주소예요. PC에서는 cloudflared·ngrok 같은 터널 주소를 넣어요.">

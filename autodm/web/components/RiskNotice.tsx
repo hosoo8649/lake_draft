@@ -60,7 +60,11 @@ export function RiskStatus() {
       <Callout
         tone="positive"
         title="최근 24시간 동안 제한 신호가 없어요"
-        description="인스타그램이 발송을 제한하면 답글 속도를 자동으로 줄이고 여기와 홈에 알려 드려요."
+        description={
+          s.alerts.email
+            ? "인스타그램이 발송을 제한하면 답글 속도를 자동으로 줄이고, 여기와 홈, 메일로 알려 드려요."
+            : "인스타그램이 발송을 제한하면 답글 속도를 자동으로 줄이고 여기와 홈에 알려 드려요. 아래 메일 알림을 켜면 메일로도 받을 수 있어요."
+        }
       />
     );
   const recent = [...s.risk.signals].reverse().slice(0, 3);
