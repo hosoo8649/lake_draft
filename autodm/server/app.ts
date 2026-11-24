@@ -3,9 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { uid } from "../shared/factory";
-import { DAY, HOUR, LIMITS } from "../shared/limits";
-import type { Post, Settings } from "../shared/types";
-import { isPublicHttpsUrl } from "../shared/validation";
+import { DAY, HOUR, LIMITS, MESSAGING_WINDOW_MS } from "../shared/limits";
+import type { Broadcast, DMButton, Post, Settings } from "../shared/types";
+import { glen, isPublicHttpsUrl, normalizeUrl, validateMessage } from "../shared/validation";
+import { AiError, aiAvailable, generateVariants } from "./ai";
 import { IG_SCOPES, config, liveConfigured } from "./config";
 import { Engine } from "./engine/engine";
 import { DEMO_PROFILE, DemoGateway, randomSampleComment, seedDemo } from "./instagram/demo";
@@ -31,12 +32,12 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
   const publicBase = () => (db().settings.publicBaseUrl || config.publicBaseUrl).replace(/\/$/, "");
 
   /** 계정을 바꾸거나 해지해도 남기는 것: 템플릿·내 링크·답글 모음·설정 */
-  const keepLibrary = () => ({
-    templates: db().templates,
-    links: db().links,
-    replySets: db().replySets,
-    settings: db().settings,
-  });
+  const keepLibrary = () => {
+    const s = db().settings;
+    // 제한 신호는 계정마다 달라서 지워요 (자동으로 멈춘 답글도 다시 켜요)
+    const settings: Settings = { ...s, replyPaused: s.risk.autoPausedReplies ? false : s.replyPaused, risk: { signals: [] } };
+    return { templates: db().templates, links: db().links, replySets: db().replySets, settings };
+  };
 
   const engine = new Engine(store, gateway, {
     now,
@@ -193,6 +194,8 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
       publicBaseUrl: publicBase(),
       webhookUrl: publicBase() ? `${publicBase()}/webhooks/instagram` : "",
       redirectUri: publicBase() ? redirectUri() : "",
+      aiAvailable: aiAvailable(),
+      riskLevel: engine.riskLevel(),
     });
   });
 
@@ -400,8 +403,99 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
       if (v && !isPublicHttpsUrl(v)) throw new HttpError(400, "공개 주소는 https:// 로 시작하는 주소로 넣어 주세요 (예: https://xxxx.trycloudflare.com)");
       s.publicBaseUrl = v;
     }
+    // 안전 장치: 답글 간격·시간당 답글 수·DM 나눠 보내기
+    const int = (v: unknown, min: number, max: number, msg: string) => {
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < min || n > max) throw new HttpError(400, msg);
+      return n;
+    };
+    const dMin = body.replyDelayMinSec !== undefined ? int(body.replyDelayMinSec, 0, 3600, "답글 간격은 0초부터 3600초 사이로 넣어 주세요") : s.replyDelayMinSec;
+    const dMax = body.replyDelayMaxSec !== undefined ? int(body.replyDelayMaxSec, 0, 3600, "답글 간격은 0초부터 3600초 사이로 넣어 주세요") : s.replyDelayMaxSec;
+    if (dMin > dMax) throw new HttpError(400, "답글 간격의 최소값이 최대값보다 클 수 없어요");
+    s.replyDelayMinSec = dMin;
+    s.replyDelayMaxSec = dMax;
+    if (body.replyPerHour !== undefined) s.replyPerHour = int(body.replyPerHour, 1, 200, "시간당 최대 답글 수는 1부터 200 사이의 정수로 넣어 주세요");
+    if (typeof body.dmSpread === "boolean") s.dmSpread = body.dmSpread;
+    // 직접 답글을 다시 켜면 자동 멈춤 표시를 지워요
+    if (body.replyPaused === false) s.risk.autoPausedReplies = false;
     store.changed();
     res.json(s);
+  });
+
+  /* 제한 신호 — 문제가 해결됐다고 판단하면 기록을 지워 원래 속도로 돌아가요 */
+  api.post("/risk/reset", (_req, res) => {
+    const s = db().settings;
+    if (s.risk.autoPausedReplies) s.replyPaused = false;
+    s.risk = { signals: [] };
+    store.changed();
+    res.json(s);
+  });
+
+  /* AI 문구 변형 (ANTHROPIC_API_KEY가 있을 때만) */
+  api.post("/ai/variants", async (req, res) => {
+    const text = String(req.body?.text ?? "").trim();
+    if (!text) throw new HttpError(400, "먼저 DM 문구를 넣어 주세요");
+    if (glen(text) > LIMITS.dmText) throw new HttpError(400, `DM 문구는 ${LIMITS.dmText}자까지 쓸 수 있어요`);
+    try {
+      res.json({ variants: await generateVariants(text, Number(req.body?.count ?? 3)) });
+    } catch (e) {
+      if (e instanceof AiError) throw new HttpError(e.status, e.message);
+      throw e;
+    }
+  });
+
+  /* ───────────── 단체 DM (24시간 안에 반응한 팬에게만) ───────────── */
+
+  /** 지금 보낼 수 있는 팬 — 마지막으로 DM을 보내거나 버튼을 누른 지 24시간이 안 된 팬 */
+  const audience = () => {
+    const t = now();
+    return Object.values(db().contacts)
+      .filter((c) => engine.inWindow(c.userId, t))
+      .sort((a, b) => b.lastInboundAt - a.lastInboundAt)
+      .map((c) => ({ ...c, expiresAt: c.lastInboundAt + MESSAGING_WINDOW_MS }));
+  };
+
+  api.get("/broadcasts/audience", (_req, res) => {
+    const list = audience();
+    res.json({ count: list.length, contacts: list.slice(0, 50) });
+  });
+
+  api.get("/broadcasts", (_req, res) => {
+    const ds = db().deliveries;
+    res.json(
+      [...db().broadcasts].reverse().map((b) => {
+        const mine = ds.filter((d) => d.automationId === `bc:${b.id}`);
+        return {
+          ...b,
+          sent: mine.filter((d) => d.status === "sent").length,
+          failed: mine.filter((d) => d.status === "failed").length,
+          skipped: mine.filter((d) => d.status === "skipped").length,
+          pending: mine.filter((d) => d.status === "queued" || d.status === "retrying").length,
+          clicks: db().clicks.filter((c) => c.automationId === `bc:${b.id}`).length,
+        };
+      }),
+    );
+  });
+
+  api.post("/broadcasts", (req, res) => {
+    const text = String(req.body?.text ?? "").trim();
+    const rawButtons: unknown[] = Array.isArray(req.body?.buttons) ? req.body.buttons : [];
+    const buttons: DMButton[] = rawButtons.slice(0, 5).map((x) => {
+      const b = (x ?? {}) as Partial<DMButton>;
+      return { id: String(b.id || uid("btn")), title: String(b.title ?? "").trim(), url: normalizeUrl(String(b.url ?? "").trim()) };
+    });
+    const errs = validateMessage({ format: "text", text, buttons, cards: [] }, { allowCarousel: false, maxButtons: LIMITS.buttonsPerMessage, label: "" });
+    if (errs.length) throw new HttpError(400, errs[0], errs);
+    const targets = audience();
+    if (!targets.length) throw new HttpError(400, "지금 보낼 수 있는 팬이 없어요. 24시간 안에 DM을 보내거나 버튼을 누른 팬에게만 보낼 수 있어요");
+    const b: Broadcast = { id: uid("bc"), text, buttons, createdAt: now(), total: targets.length };
+    db().broadcasts.push(b);
+    engine.enqueueBroadcast(
+      b,
+      targets.map((c) => c.userId),
+    );
+    void engine.tick();
+    res.status(201).json(b);
   });
 
   /* ───────────── 데모 시뮬레이터 ───────────── */
@@ -535,6 +629,12 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
     if (typeof req.body.restricted === "boolean") p.restricted = req.body.restricted;
     store.changed();
     res.json(p);
+  });
+
+  /** 제한 신호 체험: 인스타그램이 발송을 제한했다고 가정해요 */
+  api.post("/demo/risk-signal", demoOnly, (_req, res) => {
+    engine.registerRisk("체험: 인스타그램이 잠시 발송을 제한했어요", { dedupe: false });
+    res.json({ level: engine.riskLevel(), settings: db().settings });
   });
 
   /** 시간 여행: 예약 발송을 바로 확인하고 싶을 때 */

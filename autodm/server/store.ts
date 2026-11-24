@@ -1,17 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "./config";
-import { DEFAULT_RATE_LIMIT_PER_HOUR } from "../shared/limits";
+import { DEFAULT_RATE_LIMIT_PER_HOUR, SAFETY_DEFAULTS } from "../shared/limits";
 import type {
   AccountPublic,
   Automation,
+  Broadcast,
   ClickLog,
   Comment,
+  Contact,
   DeliveryKind,
   DeliveryLog,
   DeliveryOrigin,
   DemoState,
   Draw,
+  Id,
   LinkItem,
   Post,
   ReplySet,
@@ -66,6 +69,9 @@ export interface DB {
   retiredCodes: string[];
   /** 게시물별 최근에 단 답글 (같은 답글이 연달아 달리지 않게) */
   recentReplies: Record<string, string[]>;
+  /** 직접 반응한 팬 (단체 DM 24시간 판단용) */
+  contacts: Record<Id, Contact>;
+  broadcasts: Broadcast[];
   /** Instagram 로그인 보안 확인 값 */
   oauthState?: string;
   /** Instagram 로그인 뒤 돌아갈 화면 주소 */
@@ -94,7 +100,14 @@ export function emptyDB(): DB {
       replyPaused: false,
       rateLimitPerHour: DEFAULT_RATE_LIMIT_PER_HOUR,
       publicBaseUrl: config.publicBaseUrl,
+      replyDelayMinSec: SAFETY_DEFAULTS.replyDelayMinSec,
+      replyDelayMaxSec: SAFETY_DEFAULTS.replyDelayMaxSec,
+      replyPerHour: SAFETY_DEFAULTS.replyPerHour,
+      dmSpread: SAFETY_DEFAULTS.dmSpread,
+      risk: { signals: [] },
     },
+    contacts: {},
+    broadcasts: [],
     demo: { fans: [], inbox: [], replies: [] },
     retiredCodes: [],
     recentReplies: {},
@@ -115,7 +128,10 @@ export class Store {
     const raw = fs.readFileSync(file, "utf8");
     try {
       const parsed = JSON.parse(raw) as Partial<DB>;
-      return { ...emptyDB(), ...parsed, settings: { ...emptyDB().settings, ...parsed.settings } };
+      const base = emptyDB();
+      const settings = { ...base.settings, ...parsed.settings };
+      if (!settings.risk?.signals) settings.risk = { signals: [] };
+      return { ...base, ...parsed, settings };
     } catch (e) {
       // 파일이 깨졌으면 덮어쓰기 전에 따로 보관해 둬요 (토큰·자동화·기록을 잃지 않도록)
       const backup = `${file}.corrupt-${Date.now()}`;

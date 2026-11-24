@@ -372,7 +372,8 @@ describe("댓글 답글 (4차 검수)", () => {
     await engine.tick();
     expect(store.db.demo.inbox).toHaveLength(4);
     expect(store.db.demo.replies).toHaveLength(1);
-    clock += 20_000;
+    // 기본 간격은 20~60초 사이 무작위
+    clock += 60_000;
     await engine.tick();
     expect(store.db.demo.replies).toHaveLength(2);
   });

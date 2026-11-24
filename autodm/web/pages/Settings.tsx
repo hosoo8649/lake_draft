@@ -10,6 +10,7 @@ import type { Settings } from "@shared/types";
 import { isPublicHttpsUrl } from "@shared/validation";
 import { useConfirm, useErrorToast, useToast } from "../components/feedback";
 import { TextInput } from "../components/fields";
+import { RiskStatus } from "../components/RiskNotice";
 import { IconBtn, Loading, PageHeader, Section } from "../components/ui";
 import { api, useApi } from "../lib/api";
 import { useAppState } from "../lib/appState";
@@ -20,26 +21,21 @@ export function SettingsPage() {
   const nav = useNavigate();
   const toast = useToast();
   const onError = useErrorToast();
-  const [rate, setRate] = useState("");
   const [base, setBase] = useState("");
 
   useEffect(() => {
-    if (state) {
-      setRate(String(state.settings.rateLimitPerHour));
-      setBase(state.settings.publicBaseUrl);
-    }
-  }, [state?.settings.rateLimitPerHour, state?.settings.publicBaseUrl]);
+    if (state) setBase(state.settings.publicBaseUrl);
+  }, [state?.settings.publicBaseUrl]);
+
+  // 홈의 제한 신호 알림에서 들어오면 안전 장치로 바로 이동
+  useEffect(() => {
+    if (state && window.location.hash === "#safety") document.getElementById("safety")?.scrollIntoView({ block: "start" });
+  }, [!!state]);
 
   if (!state) return <Loading />;
   const s = state.settings;
-  const rateNum = Number(rate);
   // 공개 주소: 비우거나, https:// 로 시작하는 실제 주소만
   const baseError = !base.trim() ? null : isPublicHttpsUrl(base.trim()) ? null : "https:// 로 시작하는 주소를 넣어 주세요 (예: https://xxxx.trycloudflare.com)";
-  const rateError = !rate.trim()
-    ? "숫자를 넣어 주세요"
-    : !Number.isInteger(rateNum) || rateNum < 1 || rateNum > 1000
-      ? "1부터 1000 사이의 정수로 넣어 주세요"
-      : null;
 
   const patch = async (p: Partial<Settings>, msg?: string) => {
     try {
@@ -53,7 +49,7 @@ export function SettingsPage() {
 
   return (
     <div className="page page--narrow">
-      <PageHeader title="설정" description="운영 일시 중지, 발송 한도, 연동 정보를 관리해요" />
+      <PageHeader title="설정" description="운영 일시 중지, 발송 속도와 안전 장치, 연동 정보를 관리해요" />
       <VStack gap="x4">
         <Section title="운영" description="이벤트가 끝났거나 링크를 잠깐 바꿔야 할 때, 자동화를 하나씩 끄지 않고 여기서 한 번에 멈출 수 있어요">
           <List>
@@ -87,30 +83,9 @@ export function SettingsPage() {
           )}
         </Section>
 
-        <Section title="발송 한도" description="인스타그램은 계정마다 일정 시간 동안 보낼 수 있는 DM 수를 제한해요. 넘는 만큼은 대기열에 두었다가 순차로 보내요.">
-          <HStack gap="x2" align="flex-start">
-            <div style={{ width: 220 }}>
-              <TextInput
-                label="시간당 최대 DM 수"
-                type="number"
-                value={rate}
-                onChange={setRate}
-                suffix="건/시간"
-                description={rateError ? undefined : "1~1000 사이로 정해요"}
-                error={rateError ?? undefined}
-              />
-            </div>
-            <div style={{ paddingTop: 30 }}>
-              <ActionButton
-                variant="neutralWeak"
-                disabled={!!rateError || Number(rate) === s.rateLimitPerHour}
-                onClick={() => patch({ rateLimitPerHour: Number(rate) }, "발송 한도를 저장했어요")}
-              >
-                저장
-              </ActionButton>
-            </div>
-          </HStack>
-        </Section>
+        <div id="safety" style={{ scrollMarginTop: 16 }}>
+          <SafetySection />
+        </div>
 
         <Section title="공개 주소 (실제 인스타그램 연동용)" description="인스타그램 로그인 리디렉션·웹훅·버튼 클릭 추적에 쓰는 HTTPS 주소예요. PC에서는 cloudflared·ngrok 같은 터널 주소를 넣어요.">
           <VStack gap="x3">
@@ -228,6 +203,152 @@ function AdminPasswordSection() {
           </ActionButton>
         </HStack>
       )}
+    </Section>
+  );
+}
+
+/** 정수 입력 검사 — 오류 문구 또는 null */
+function intError(v: string, min: number, max: number): string | null {
+  if (!v.trim()) return "숫자를 넣어 주세요";
+  const n = Number(v);
+  return !Number.isInteger(n) || n < min || n > max ? `${min}부터 ${max} 사이의 정수로 넣어 주세요` : null;
+}
+
+/**
+ * 발송 속도 · 안전 장치
+ * 사람이 보내는 것처럼 천천히, 몰아서 보내지 않게 — 인스타그램 제한 신호를 받으면 자동으로 더 느려져요
+ */
+function SafetySection() {
+  const { state, reload } = useAppState();
+  const toast = useToast();
+  const onError = useErrorToast();
+  const s = state!.settings;
+  const initial = () => ({
+    rate: String(s.rateLimitPerHour),
+    min: String(s.replyDelayMinSec),
+    max: String(s.replyDelayMaxSec),
+    replies: String(s.replyPerHour),
+  });
+  const [f, setF] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => setF(initial()), [s.rateLimitPerHour, s.replyDelayMinSec, s.replyDelayMaxSec, s.replyPerHour]);
+
+  const errs = {
+    rate: intError(f.rate, 1, 1000),
+    min: intError(f.min, 0, 3600),
+    max: intError(f.max, 0, 3600),
+    replies: intError(f.replies, 1, 200),
+  };
+  const rangeError = !errs.min && !errs.max && Number(f.min) > Number(f.max) ? "앞의 숫자가 뒤의 숫자보다 클 수 없어요" : null;
+  const invalid = Object.values(errs).some(Boolean) || !!rangeError;
+  const dirty = JSON.stringify(f) !== JSON.stringify(initial());
+  const gap = Math.max(1, Math.round(3600 / Math.max(1, Number(f.rate) || s.rateLimitPerHour)));
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api("/settings", {
+        method: "PATCH",
+        body: { rateLimitPerHour: Number(f.rate), replyDelayMinSec: Number(f.min), replyDelayMaxSec: Number(f.max), replyPerHour: Number(f.replies) },
+      });
+      await reload();
+      toast("발송 속도를 저장했어요", "positive");
+    } catch (e) {
+      onError(e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Section
+      title="발송 속도 · 안전 장치"
+      description="짧은 시간에 너무 많이 보내면 인스타그램이 계정을 제한할 수 있어요. 사람이 보내는 것처럼 간격을 두고 보내요."
+    >
+      <VStack gap="x6">
+        <RiskStatus />
+
+        <VStack gap="x3">
+          <Text as="h3" textStyle="t5Bold">
+            DM
+          </Text>
+          <div style={{ maxWidth: 360 }}>
+            <TextInput
+              label="시간당 최대 DM 수"
+              type="number"
+              value={f.rate}
+              onChange={(rate) => setF({ ...f, rate })}
+              suffix="건/시간"
+              description={errs.rate ? undefined : "넘는 만큼은 대기열에 두었다가 순서대로 보내요"}
+              error={errs.rate ?? undefined}
+            />
+          </div>
+          {/* 위 입력칸과 왼쪽 줄을 맞춰요 */}
+          <List className="list-flush">
+            <ListSwitchItem
+              title="DM 고르게 나눠 보내기"
+              detail={`한꺼번에 몰아서 보내지 않고 한도에 맞춰 간격을 둬요. 지금 한도라면 약 ${gap < 60 ? `${gap}초` : `${Math.round(gap / 60)}분`}에 1건씩 보내요.`}
+              checked={s.dmSpread}
+              onCheckedChange={async (v) => {
+                try {
+                  await api("/settings", { method: "PATCH", body: { dmSpread: v } });
+                  await reload();
+                  toast(v ? "DM을 고르게 나눠 보내요" : "DM을 한도 안에서 바로 보내요", "positive");
+                } catch (e) {
+                  onError(e);
+                }
+              }}
+              suffix={<Switchmark />}
+            />
+          </List>
+        </VStack>
+
+        <VStack gap="x3">
+          <Text as="h3" textStyle="t5Bold">
+            댓글 답글
+          </Text>
+          <VStack gap="x1_5" role="group" aria-labelledby="reply-gap-label">
+            <Text id="reply-gap-label" textStyle="t5Medium" style={{ paddingInline: 2 }}>
+              답글 간격
+            </Text>
+            <HStack gap="x2" align="center">
+              <div style={{ width: 120 }}>
+                <TextInput ariaLabel="답글 간격 최소" type="number" value={f.min} onChange={(min) => setF({ ...f, min })} suffix="초" invalidOnly={!!errs.min} />
+              </div>
+              <Text textStyle="t5Regular" color="fg.neutralMuted" aria-hidden>
+                ~
+              </Text>
+              <div style={{ width: 120 }}>
+                <TextInput ariaLabel="답글 간격 최대" type="number" value={f.max} onChange={(max) => setF({ ...f, max })} suffix="초" invalidOnly={!!(errs.max || rangeError)} />
+              </div>
+            </HStack>
+            <Text textStyle="t2Regular" color={errs.min || errs.max || rangeError ? "fg.critical" : "fg.neutralSubtle"}>
+              {errs.min ?? errs.max ?? rangeError ?? "이 사이에서 매번 다르게 기다렸다가 답글을 달아요. 제한 신호를 받으면 10분으로 늘어나요."}
+            </Text>
+          </VStack>
+          <div style={{ maxWidth: 360 }}>
+            <TextInput
+              label="시간당 최대 답글 수"
+              type="number"
+              value={f.replies}
+              onChange={(replies) => setF({ ...f, replies })}
+              suffix="건/시간"
+              error={errs.replies ?? undefined}
+            />
+          </div>
+        </VStack>
+
+        <HStack gap="x2">
+          <ActionButton variant="neutralSolid" disabled={!dirty || invalid} loading={saving} onClick={save}>
+            저장
+          </ActionButton>
+          {dirty && (
+            <ActionButton variant="ghost" onClick={() => setF(initial())}>
+              되돌리기
+            </ActionButton>
+          )}
+        </HStack>
+      </VStack>
     </Section>
   );
 }

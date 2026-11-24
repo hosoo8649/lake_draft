@@ -1,7 +1,7 @@
 import { uid } from "../../shared/factory";
-import { DAY, HOUR, LIMITS, isCodeFormat, normalizeCode } from "../../shared/limits";
+import { DAY, HOUR, LIMITS, MESSAGING_WINDOW_MS, SAFETY_DEFAULTS, isCodeFormat, normalizeCode } from "../../shared/limits";
 import { replyPool } from "../../shared/presets";
-import type { Automation, Comment, DeliveryKind, DeliveryLog, DeliveryOrigin } from "../../shared/types";
+import type { Automation, Broadcast, Comment, Contact, DeliveryKind, DeliveryLog, DeliveryOrigin } from "../../shared/types";
 import { findConflicts, keywordHit } from "../../shared/validation";
 import type { Gateway, OutgoingMessage } from "../instagram/gateway";
 import type { QueueItem, Store } from "../store";
@@ -9,15 +9,15 @@ import {
   FOLLOW_CHECK_PREFIX,
   buildFirstMessage,
   buildFollowerMessage,
+  buildMessage,
   buildNonFollowerMessage,
   findButton,
   makeLinkBuilder,
 } from "./messages";
 
 const MAX_ATTEMPTS = 5;
-/** 댓글 답글: 시간당 최대 개수, 답글 사이 최소 간격 (한꺼번에 몰리면 인스타그램이 제한할 수 있어요) */
-const REPLY_LIMIT_PER_HOUR = 60;
-const REPLY_MIN_GAP = 20_000;
+/** 같은 사건으로 신호가 여러 번 세지지 않게 — 이 간격 안의 신호는 하나로 쳐요 */
+const RISK_DEDUPE_MS = 10 * 60_000;
 /** 이보다 오래 밀린 답글은 달지 않아요 (며칠 지난 댓글에 갑자기 답글이 달리지 않도록) */
 const REPLY_MAX_AGE = 6 * HOUR;
 /** 비팔로워가 확인 버튼을 연달아 눌러도 이 간격 안에는 한 번만 답해요 */
@@ -206,8 +206,10 @@ export class Engine {
     payload: string,
     eventId?: string,
   ): Promise<{ follower?: boolean; skipped?: string }> {
-    if (!payload.startsWith(FOLLOW_CHECK_PREFIX)) return { skipped: "unknown-payload" };
     if (!this.firstTime(eventId)) return { skipped: "duplicate" };
+    // 팬이 버튼을 눌렀어요 → 24시간 동안 메시지를 보낼 수 있어요
+    this.touchContact(userId, username, "postback");
+    if (!payload.startsWith(FOLLOW_CHECK_PREFIX)) return { skipped: "unknown-payload" };
     const a = this.db.automations.find((x) => x.id === payload.slice(FOLLOW_CHECK_PREFIX.length));
     if (!a) return { skipped: "automation-deleted" };
     if (this.db.settings.dmPaused) return { skipped: "paused" };
@@ -300,6 +302,12 @@ export class Engine {
   ): Promise<{ automationId?: string; skipped?: string }> {
     if (this.isOwn(userId, username)) return { skipped: "own" };
     if (!this.firstTime(eventId)) return { skipped: "duplicate" };
+    // 팬이 먼저 DM을 보냈어요 → 24시간 동안 이 팬에게 메시지를 보낼 수 있어요 (단체 DM 대상)
+    this.touchContact(
+      userId,
+      username,
+      msg.sharedPostId || msg.sharedUrl ? "share" : isCodeFormat(msg.text?.trim() ?? "") ? "code" : "message",
+    );
     let a: Automation | undefined;
     let origin: DeliveryOrigin = "code";
     if (msg.sharedPostId || msg.sharedUrl) {
@@ -474,6 +482,70 @@ export class Engine {
     this.store.changed();
   }
 
+  /* ───────────── 팬 반응 기록 (24시간 규칙) ───────────── */
+
+  private touchContact(userId: string, username: string, kind: Contact["lastInboundKind"]): void {
+    const now = this.now();
+    const c = this.db.contacts[userId];
+    this.db.contacts[userId] = {
+      userId,
+      username: username || c?.username || "",
+      lastInboundAt: now,
+      lastInboundKind: kind,
+      firstSeenAt: c?.firstSeenAt ?? now,
+    };
+    this.store.changed();
+  }
+
+  /** 지금 메시지를 보낼 수 있는 팬 (마지막 반응 뒤 24시간 안) */
+  inWindow(userId: string, at = this.now()): boolean {
+    const c = this.db.contacts[userId];
+    return !!c && at - c.lastInboundAt < MESSAGING_WINDOW_MS;
+  }
+
+  /* ───────────── 제한 신호 감지 (사전 경고) ───────────── */
+
+  /** 최근 24시간 제한 신호 수 */
+  riskLevel(): number {
+    const since = this.now() - SAFETY_DEFAULTS.riskWindowMs;
+    return this.db.settings.risk.signals.filter((x) => x.at >= since).length;
+  }
+
+  /**
+   * 인스타그램 제한 신호를 받았어요.
+   * 1~2번째: 답글 간격을 10분으로 늘려요 · 3번째: 답글을 자동으로 멈춰요 (DM은 계속 보내요)
+   */
+  registerRisk(reason: string, opts: { dedupe?: boolean } = {}): void {
+    const risk = this.db.settings.risk;
+    const now = this.now();
+    const last = risk.signals.at(-1);
+    // 한 번 막히면 같은 신호가 연달아 오므로 10분 안의 신호는 하나로 셉니다
+    if (opts.dedupe !== false && last && now - last.at < RISK_DEDUPE_MS) return;
+    risk.signals = [...risk.signals.filter((x) => x.at >= now - SAFETY_DEFAULTS.riskWindowMs), { at: now, reason }].slice(-10);
+    if (this.riskLevel() >= 3 && !this.db.settings.replyPaused) {
+      this.db.settings.replyPaused = true;
+      risk.autoPausedReplies = true;
+    }
+    this.store.changed();
+  }
+
+  /** 다음 답글까지 기다릴 시간 — 설정한 범위에서 무작위, 제한 신호가 있으면 10분 */
+  private replyGapMs = 0;
+  private pickReplyGap(): number {
+    const s = this.db.settings;
+    if (this.riskLevel() > 0) return SAFETY_DEFAULTS.riskReplyDelaySec * 1000;
+    const min = Math.max(0, s.replyDelayMinSec ?? SAFETY_DEFAULTS.replyDelayMinSec);
+    const max = Math.max(min, s.replyDelayMaxSec ?? SAFETY_DEFAULTS.replyDelayMaxSec);
+    return Math.round((min + Math.random() * (max - min)) * 1000);
+  }
+
+  private lastSentAt(kind: "reply" | "dm"): number {
+    let t = 0;
+    for (const d of this.db.deliveries)
+      if (d.status === "sent" && (kind === "reply" ? d.kind === "reply" : d.kind !== "reply") && (d.sentAt ?? 0) > t) t = d.sentAt!;
+    return t;
+  }
+
   private lastReplyAt(): number {
     let t = 0;
     for (const d of this.db.deliveries) if (d.kind === "reply" && d.status === "sent" && (d.sentAt ?? 0) > t) t = d.sentAt!;
@@ -597,12 +669,18 @@ export class Engine {
   }
 
   private async drainQueue(): Promise<void> {
-    const limit = this.db.settings.rateLimitPerHour;
+    const s = this.db.settings;
+    const limit = s.rateLimitPerHour;
     let dmBudget = Math.max(0, limit - this.sentInLastHour("dm"));
-    let replyBudget = Math.max(0, REPLY_LIMIT_PER_HOUR - this.sentInLastHour("reply"));
+    let replyBudget = Math.max(0, (s.replyPerHour ?? SAFETY_DEFAULTS.replyPerHour) - this.sentInLastHour("reply"));
     const now = this.now();
-    // 답글은 간격을 두고 한 틱에 하나씩만
-    let replyAllowed = now - this.lastReplyAt() >= REPLY_MIN_GAP;
+    // 답글은 정한 간격(무작위)을 두고 한 틱에 하나씩만
+    if (!this.replyGapMs) this.replyGapMs = this.pickReplyGap();
+    if (this.riskLevel() > 0) this.replyGapMs = Math.max(this.replyGapMs, SAFETY_DEFAULTS.riskReplyDelaySec * 1000);
+    let replyAllowed = now - this.lastReplyAt() >= this.replyGapMs;
+    // DM 고르게 나눠 보내기: 시간당 한도에 맞춰 DM 사이에 간격을 둬요
+    const dmGapMs = s.dmSpread ? Math.floor(HOUR / Math.max(1, limit)) : 0;
+    let dmAllowed = !dmGapMs || now - this.lastSentAt("dm") >= dmGapMs;
     const paused = this.db.settings.dmPaused;
     // 한 번에 너무 몰리지 않게 틱마다 최대 20건
     let perTick = 20;
@@ -630,12 +708,16 @@ export class Engine {
       if (paused && item.origin !== "batch") continue;
       // 꺼 둔 자동화는 다시 켤 때까지 보내지 않아요 (팔로우 확인 응답·일괄 발송은 이어서 보내요)
       if (owner && !owner.enabled && item.origin !== "postback" && item.origin !== "batch") continue;
-      if (isReply ? replyBudget <= 0 || !replyAllowed : dmBudget <= 0) continue;
+      if (isReply ? replyBudget <= 0 || !replyAllowed : dmBudget <= 0 || !dmAllowed) continue;
       perTick--;
       if (isReply) {
         replyBudget--;
         replyAllowed = false;
-      } else dmBudget--;
+        this.replyGapMs = this.pickReplyGap();
+      } else {
+        dmBudget--;
+        if (dmGapMs) dmAllowed = false;
+      }
       await this.sendItem(item);
     }
   }
@@ -643,6 +725,7 @@ export class Engine {
   private async sendItem(item: QueueItem): Promise<void> {
     const db = this.db;
     const log = db.deliveries.find((d) => d.id === item.deliveryId);
+    if (item.kind === "broadcast") return this.sendBroadcastItem(item, log);
     const a = db.automations.find((x) => x.id === item.automationId);
     const removeItem = () => {
       db.queue = db.queue.filter((q) => q.id !== item.id);
@@ -657,9 +740,11 @@ export class Engine {
     const { base, track } = this.opts.trackingBase();
     const link = makeLinkBuilder(base, track, this.opts.assetBase?.() ?? base);
     let msg: OutgoingMessage | null = null;
-    if (item.kind === "gate" || (item.kind === "main" && !a.dm.followGate.enabled)) msg = buildFirstMessage(a, log.id, link);
-    else if (item.kind === "main") msg = buildFollowerMessage(a, log.id, link);
-    else if (item.kind === "nonFollower") msg = buildNonFollowerMessage(a, log.id, link);
+    // 팬마다 문구 변형 중 하나를 고르고 {이름} 자리에 아이디를 넣어요
+    const who = { username: item.username, seed: `${a.id}:${item.userId}` };
+    if (item.kind === "gate" || (item.kind === "main" && !a.dm.followGate.enabled)) msg = buildFirstMessage(a, log.id, link, who);
+    else if (item.kind === "main") msg = buildFollowerMessage(a, log.id, link, who);
+    else if (item.kind === "nonFollower") msg = buildNonFollowerMessage(a, log.id, link, who);
 
     if (msg) log.links = collectLinks(a, item.kind);
     const ctx = { deliveryId: log.id, userId: item.userId, username: item.username };
@@ -687,8 +772,100 @@ export class Engine {
       item.attempts += 1;
       log.error = result.error;
       if (result.recipient) log.recipientIssue = true;
+      if (result.risk) this.registerRisk(result.error);
       if (result.authError && db.account) db.account.needsReauth = true;
       if (result.retryable && item.attempts < MAX_ATTEMPTS) {
+        log.status = "retrying";
+        item.notBefore = this.now() + Math.min(60_000 * 2 ** item.attempts, 30 * 60_000);
+      } else {
+        log.status = "failed";
+        removeItem();
+      }
+    }
+    this.store.changed();
+  }
+
+  /* ───────────── 단체 DM (24시간 안에 반응한 팬에게만) ───────────── */
+
+  /** 단체 DM을 대기열에 넣어요 — 대상은 지금 24시간 안에 있는 팬만 */
+  enqueueBroadcast(b: Broadcast, userIds: string[]): void {
+    for (const userId of userIds) {
+      const c = this.db.contacts[userId];
+      const log: DeliveryLog = {
+        id: uid("dl"),
+        automationId: `bc:${b.id}`,
+        postId: null,
+        userId,
+        username: c?.username ?? "",
+        kind: "broadcast",
+        origin: "broadcast",
+        status: "queued",
+        createdAt: this.now(),
+      };
+      this.db.deliveries.push(log);
+      this.db.queue.push({
+        id: uid("q"),
+        automationId: log.automationId,
+        deliveryId: log.id,
+        kind: "broadcast",
+        origin: "broadcast",
+        postId: null,
+        userId,
+        username: log.username,
+        notBefore: this.now(),
+        attempts: 0,
+        createdAt: this.now(),
+      });
+    }
+    this.store.changed();
+  }
+
+  private async sendBroadcastItem(item: QueueItem, log: DeliveryLog | undefined): Promise<void> {
+    const db = this.db;
+    const removeItem = () => {
+      db.queue = db.queue.filter((q) => q.id !== item.id);
+    };
+    const b = db.broadcasts.find((x) => `bc:${x.id}` === item.automationId);
+    if (!log || !b) {
+      removeItem();
+      if (log) log.status = "skipped";
+      this.store.changed();
+      return;
+    }
+    // 보내기 직전에 한 번 더 — 24시간이 지났으면 인스타그램 규칙상 보낼 수 없어요
+    if (!this.inWindow(item.userId)) {
+      removeItem();
+      log.status = "skipped";
+      log.error = "마지막 반응 뒤 24시간이 지나 보내지 않았어요 (인스타그램 규칙)";
+      this.store.changed();
+      return;
+    }
+    const { base, track } = this.opts.trackingBase();
+    const link = makeLinkBuilder(base, track, this.opts.assetBase?.() ?? base);
+    const msg = buildMessage({ format: "text", text: b.text, buttons: b.buttons, cards: [] }, log.id, link, [], {
+      username: item.username,
+      seed: `${b.id}:${item.userId}`,
+    });
+    log.links = Object.fromEntries(b.buttons.filter((x) => x.url).map((x) => [x.id, x.url]));
+    let result;
+    try {
+      result = await this.gateway().sendDirect(item.userId, msg, { deliveryId: log.id, userId: item.userId, username: item.username });
+    } catch (e) {
+      result = { ok: false as const, error: `발송 오류: ${(e as Error).message}`, retryable: true };
+    }
+    if (result.ok) {
+      log.status = "sent";
+      log.sentAt = this.now();
+      log.messageId = result.messageId;
+      log.error = undefined;
+      removeItem();
+    } else {
+      item.attempts += 1;
+      log.error = result.error;
+      if (result.recipient) log.recipientIssue = true;
+      if (result.risk) this.registerRisk(result.error);
+      if (result.authError && db.account) db.account.needsReauth = true;
+      if (result.retryable && item.attempts < MAX_ATTEMPTS && this.inWindow(item.userId)) {
         log.status = "retrying";
         item.notBefore = this.now() + Math.min(60_000 * 2 ** item.attempts, 30 * 60_000);
       } else {

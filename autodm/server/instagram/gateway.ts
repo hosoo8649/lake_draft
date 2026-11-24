@@ -21,7 +21,7 @@ export type OutgoingMessage =
 
 export type SendResult =
   | { ok: true; messageId?: string }
-  | { ok: false; error: string; retryable: boolean; authError?: boolean; recipient?: boolean };
+  | { ok: false; error: string; retryable: boolean; authError?: boolean; recipient?: boolean; risk?: boolean };
 
 export interface SendContext {
   deliveryId: string;
@@ -60,7 +60,7 @@ export function describeGraphError(e: {
   code?: number;
   error_subcode?: number;
   message?: string;
-}): { error: string; retryable: boolean; authError?: boolean; recipient?: boolean } {
+}): { error: string; retryable: boolean; authError?: boolean; recipient?: boolean; risk?: boolean } {
   const code = e.code ?? 0;
   const sub = e.error_subcode ?? 0;
   if (code === 190 || code === 102) return { error: "인스타그램 연결이 만료됐어요. 다시 연동해 주세요", retryable: false, authError: true };
@@ -69,9 +69,10 @@ export function describeGraphError(e: {
   if (code === 10) return { error: "메시지 권한이 없어요 (메시지 액세스 허용을 확인해 주세요)", retryable: false };
   if (code === 551 || sub === 1545041) return { error: "수신자가 메시지를 받을 수 없는 상태예요", retryable: false, recipient: true };
   if (code === 4 || code === 17 || code === 32 || code === 613 || sub === 2534025)
-    return { error: "인스타그램에서 발송을 제한했어요 (잠시 후 다시 보내요)", retryable: true };
+    // risk: 인스타그램이 속도를 문제 삼는 신호 → 자동으로 답글을 늦추고, 반복되면 멈춰요
+    return { error: "인스타그램에서 발송을 제한했어요 (잠시 후 다시 보내요)", retryable: true, risk: true };
   if (code === 1 || code === 2) return { error: "인스타그램 일시 오류 (재시도 중)", retryable: true };
   if (code === 100 && sub === 2018001) return { error: "수신자를 찾을 수 없어요", retryable: false, recipient: true };
-  if (code === 368) return { error: "계정이 일시적으로 제한됐어요", retryable: false };
+  if (code === 368) return { error: "계정이 일시적으로 제한됐어요", retryable: false, risk: true };
   return { error: e.message ? `인스타그램 오류: ${e.message}` : "알 수 없는 오류", retryable: false };
 }

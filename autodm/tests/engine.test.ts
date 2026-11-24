@@ -252,7 +252,8 @@ describe("자동 DM 엔진", () => {
     await engine.tick(); // DM 2건
     await engine.tick(); // 답글은 DM이 나간 뒤, 간격을 두고 하나씩
     expect(store.db.demo.replies).toHaveLength(1);
-    clock += 20_000;
+    // 기본 간격은 20~60초 사이 무작위
+    clock += 60_000;
     await engine.tick();
     expect(store.db.demo.replies).toHaveLength(2);
     engine.handleRead("fan_2");

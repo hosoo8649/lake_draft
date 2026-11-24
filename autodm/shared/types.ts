@@ -73,6 +73,11 @@ export interface DMMessage {
   text: string;
   buttons: DMButton[];
   cards: CarouselCard[];
+  /**
+   * 같은 뜻의 다른 문구 (팬마다 하나씩 골라 보내요 — 똑같은 문구 반복을 줄여 스팸 위험을 낮춰요).
+   * 비어 있으면 text만 써요. {이름} 자리에는 팬 아이디가 들어가요.
+   */
+  variants?: string[];
 }
 
 export interface FollowGate {
@@ -201,8 +206,8 @@ export interface AutomationView extends Automation {
 
 /* ───────────── 발송 기록 ───────────── */
 
-export type DeliveryKind = "gate" | "main" | "nonFollower" | "reply";
-export type DeliveryOrigin = "comment" | "share" | "code" | "postback" | "batch" | "scheduled";
+export type DeliveryKind = "gate" | "main" | "nonFollower" | "reply" | "broadcast";
+export type DeliveryOrigin = "comment" | "share" | "code" | "postback" | "batch" | "scheduled" | "broadcast";
 export type DeliveryStatus = "queued" | "sent" | "failed" | "retrying" | "skipped";
 
 export interface DeliveryLog {
@@ -303,6 +308,45 @@ export interface Settings {
   rateLimitPerHour: number;
   /** 클릭 추적용 공개 주소 (예: https://xxxx.trycloudflare.com) */
   publicBaseUrl: string;
+  /** 댓글 답글 사이 간격 (초) — 이 범위에서 무작위로 기다려요 */
+  replyDelayMinSec: number;
+  replyDelayMaxSec: number;
+  /** 시간당 최대 댓글 답글 수 */
+  replyPerHour: number;
+  /** DM을 시간당 한도에 맞춰 고르게 나눠 보내기 (몰아서 보내지 않기) */
+  dmSpread: boolean;
+  /** 인스타그램 제한 신호 감지 상태 */
+  risk: RiskState;
+}
+
+/**
+ * 인스타그램이 보낸 제한 신호(발송 제한·일시 차단 등)를 모아 자동으로 속도를 줄여요.
+ * 1~2번: 답글 간격을 10분으로 늘려요 · 3번: 답글을 멈춰요 (DM은 계속 보내요)
+ */
+export interface RiskState {
+  signals: { at: number; reason: string }[];
+  /** 3번째 신호로 답글을 자동으로 멈췄는지 */
+  autoPausedReplies?: boolean;
+}
+
+/** 24시간 안에 DM을 보냈거나 버튼을 누른 팬 (단체 DM 대상 판단용) */
+export interface Contact {
+  userId: Id;
+  username: string;
+  /** 팬이 마지막으로 직접 반응한 때 (DM 보내기·버튼 누르기) — 이때부터 24시간 동안 보낼 수 있어요 */
+  lastInboundAt: number;
+  lastInboundKind: "message" | "postback" | "share" | "code";
+  firstSeenAt: number;
+}
+
+/** 단체 DM (24시간 안에 반응한 팬에게만) */
+export interface Broadcast {
+  id: Id;
+  text: string;
+  buttons: DMButton[];
+  createdAt: number;
+  /** 보낼 때 대상이었던 팬 수 */
+  total: number;
 }
 
 /* ───────────── 홈 요약 ───────────── */

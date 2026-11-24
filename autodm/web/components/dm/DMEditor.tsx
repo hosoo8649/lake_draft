@@ -11,6 +11,9 @@ import { ButtonEditSheet, FullEditModal, TextEditSheet, tabOk } from "./sheets";
 
 export type { DMTab };
 
+/** 원래 문구 + 다른 문구 수 */
+const variantCount = (m: DMMessage) => (m.format === "text" ? 1 + (m.variants ?? []).filter((x) => x.trim()).length : 1);
+
 function GateTabs(props: { value: DMTab; onChange: (t: DMTab) => void; dm: DMContent; readOnly?: boolean }) {
   // 보이지 않는 탭에 고칠 곳이 있으면 점으로 알려 줘요 (SEED Tabs notification) — 미리보기에서는 표시 안 함
   const warn = (t: DMTab) => !props.readOnly && !tabOk(props.dm, t);
@@ -121,16 +124,18 @@ export function DMStage(props: {
       </ActionButton>
       <Text textStyle="t2Regular" color="fg.neutralSubtle" align="center">
         말풍선과 버튼을 누르면 바로 수정할 수 있어요
+        {current !== "gate" && variantCount(msgOf(current)) > 1 && ` · 문구 ${variantCount(msgOf(current))}개 중 하나를 팬마다 골라 보내요`}
       </Text>
 
       <TextEditSheet
         open={textOpen}
         title={current === "gate" ? "팔로우 확인 DM 수정" : "DM 글 수정"}
         value={current === "gate" ? dm.followGate.gateText : msgOf(current).text}
+        variants={current === "gate" ? undefined : (msgOf(current).variants ?? [])}
         onClose={() => setTextOpen(false)}
-        onSave={(text) => {
+        onSave={(text, variants) => {
           if (current === "gate") onChange({ ...dm, followGate: { ...dm.followGate, gateText: text } });
-          else setMsg(current, { ...msgOf(current), text });
+          else setMsg(current, { ...msgOf(current), text, variants });
         }}
       />
       <ButtonEditSheet

@@ -34,6 +34,25 @@ function hostOf(url: string): string {
   }
 }
 
+/** 미리보기용 팬 아이디 — 댓글 단 팬과 같은 이름 */
+export const SAMPLE_FAN = "fan.minji";
+const NAME_TOKEN = /(\{이름\}|\{username\}|\[username\])/gi;
+
+/** {이름} 자리를 팬 아이디로 바꿔 보여 줘요 (실제 DM에서도 이렇게 바뀌어요) */
+export function withName(text: string, name = SAMPLE_FAN): ReactNode {
+  const parts = text.split(NAME_TOKEN);
+  if (parts.length === 1) return text;
+  return parts.map((p, i) =>
+    i % 2 === 1 ? (
+      <span key={i} className="name-token" title="받는 팬의 아이디로 바뀌어요">
+        {name}
+      </span>
+    ) : (
+      p
+    ),
+  );
+}
+
 export function BubbleAvatar({ name }: { name?: string }) {
   return (
     <div className="bubble-avatar">
@@ -176,7 +195,7 @@ export function MessageBubble(props: {
             }
           }}
         >
-          {m.text || (
+          {m.text ? withName(m.text) : (
             <span style={{ color: "var(--seed-color-fg-placeholder)" }}>
               DM 문구를 넣어 주세요
             </span>
@@ -264,7 +283,7 @@ export function FanComment(props: {
   post?: Post | null;
   meta?: string;
 }) {
-  const name = props.username ?? "fan.minji";
+  const name = props.username ?? SAMPLE_FAN;
   return (
     <div className="fan-comment">
       <div className="fan-comment__avatar">

@@ -1,5 +1,5 @@
 import { cloneDeep, defaultExtras, uid } from "../shared/factory";
-import { CODE_ALPHABET, DAY, LIMITS, MINUTE, isCodeFormat, normalizeCode } from "../shared/limits";
+import { CODE_ALPHABET, DAY, LIMITS, MAX_VARIANTS, MINUTE, isCodeFormat, normalizeCode } from "../shared/limits";
 import { BUILTIN_TEMPLATES } from "../shared/presets";
 import type {
   Automation,
@@ -143,6 +143,15 @@ export class Services {
     c.main.cards.forEach((card) => card.buttons.forEach(fix));
     c.followGate.nonFollower.buttons.forEach(fix);
     c.followGate.nonFollower.format = "text";
+    // 다른 문구: 빈 칸·원래 문구와 같은 것은 빼요
+    for (const m of [c.main, c.followGate.nonFollower]) {
+      const seen = new Set([m.text.trim()]);
+      m.variants = (Array.isArray(m.variants) ? m.variants : [])
+        .map((v) => String(v ?? "").trim())
+        .filter((v) => v && !seen.has(v) && (seen.add(v), true))
+        .slice(0, MAX_VARIANTS + 1);
+      if (!m.variants.length) delete m.variants;
+    }
     if (!c.followGate.enabled && c.main.format === "carousel") c.main.format = "text";
     return c;
   }

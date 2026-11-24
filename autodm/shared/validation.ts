@@ -1,4 +1,4 @@
-import { LIMITS } from "./limits";
+import { LIMITS, MAX_VARIANTS } from "./limits";
 import type { Automation, DMContent, DMMessage, Extras, SendMode, Trigger } from "./types";
 
 /* ───────────── 키워드 ───────────── */
@@ -129,6 +129,9 @@ export function validateMessage(m: DMMessage, rules: MessageRules): string[] {
   }
   if (!m.text.trim()) errs.push(`${p}DM 문구를 넣어 주세요`);
   if (glen(m.text) > LIMITS.dmText) errs.push(`${p}DM 문구는 ${LIMITS.dmText}자까지 쓸 수 있어요`);
+  const variants = (m.variants ?? []).filter((v) => v.trim());
+  if (variants.length > MAX_VARIANTS) errs.push(`${p}다른 문구는 ${MAX_VARIANTS}개까지 넣을 수 있어요`);
+  if (variants.some((v) => glen(v) > LIMITS.dmText)) errs.push(`${p}다른 문구도 ${LIMITS.dmText}자까지 쓸 수 있어요`);
   if (m.buttons.length > rules.maxButtons) errs.push(`${p}버튼은 ${rules.maxButtons}개까지 넣을 수 있어요`);
   m.buttons.forEach((b) => {
     if (!b.title.trim()) errs.push(`${p}버튼 이름을 넣어 주세요`);

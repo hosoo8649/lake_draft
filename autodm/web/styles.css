@@ -1274,3 +1274,51 @@ button {
   width: 11px;
   height: 11px;
 }
+
+/* ───────────── 문구 개인화 · 안전 장치 ───────────── */
+
+/* 미리보기에서 {이름} 자리 — 실제 DM에서는 팬 아이디로 바뀌어요 */
+.name-token {
+  border-radius: 4px;
+  padding: 0 2px;
+  background: var(--seed-color-bg-informative-weak);
+  color: var(--seed-color-fg-informative-contrast);
+}
+
+.plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 입력칸과 같은 줄에 맞춘 목록 (설정 › 발송 속도) */
+.list-flush .seed-list-item__root {
+  padding-inline: 0;
+}
+
+/* 단체 DM: 휴대폰에서는 쓰는 칸 다음에 미리보기 */
+@media (max-width: 767px) {
+  .edit-grid--preview-last .edit-grid__preview {
+    order: 0;
+  }
+}
+@media (max-width: 767px) {
+  .edit-grid--preview-last .edit-grid__preview[data-empty="true"] {
+    display: none;
+  }
+  .edit-grid--preview-last .phone__body {
+    min-height: 0;
+  }
+}

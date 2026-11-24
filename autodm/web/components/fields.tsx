@@ -17,6 +17,8 @@ interface BaseProps {
   type?: string;
   onEnter?: () => void;
   ariaLabel?: string;
+  /** 오류 문구는 바깥에서 따로 보여 주고 칸만 빨갛게 */
+  invalidOnly?: boolean;
 }
 
 export function TextInput(p: BaseProps) {
@@ -27,7 +29,7 @@ export function TextInput(p: BaseProps) {
       maxGraphemeCount={p.max}
       onValueChange={({ value, slicedValue }) => p.onChange(p.max ? slicedValue : value)}
       description={p.description}
-      invalid={!!p.error}
+      invalid={!!p.error || p.invalidOnly}
       errorMessage={p.error}
       disabled={p.disabled}
       showRequiredIndicator={p.required}

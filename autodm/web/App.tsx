@@ -3,6 +3,7 @@ import {
   IconFlaskLine,
   IconGearLine,
   IconHouseLine,
+  IconMegaphoneLine,
   IconPaperclipLine,
   IconQuestionmarkCircleLine,
   IconSquare2StackedLine,
@@ -27,6 +28,7 @@ import { Loading } from "./components/ui";
 import { useAppState } from "./lib/appState";
 import { AutomationDetailPage } from "./pages/AutomationDetail";
 import { AutomationWizardPage } from "./pages/AutomationWizard";
+import { BroadcastsPage } from "./pages/Broadcasts";
 import { ConnectConfirmPage, ConnectPage } from "./pages/Connect";
 import { DrawsPage } from "./pages/Draws";
 import { HelpPage } from "./pages/Help";
@@ -43,7 +45,7 @@ function MobileShell({ children }: { children: React.ReactNode }) {
   const nav = useNavigate();
   const { pathname } = useLocation();
   const tabs = [
-    { label: "홈", path: "/", icon: <IconHouseLine />, match: (p: string) => p === "/" || p.startsWith("/automations") },
+    { label: "홈", path: "/", icon: <IconHouseLine />, match: (p: string) => p === "/" || p.startsWith("/automations") || p === "/broadcasts" },
     { label: "템플릿", path: "/templates", icon: <IconSquare2StackedLine />, match: (p: string) => p.startsWith("/templates") },
     { label: "추첨", path: "/draws", icon: <IconTrophyLine />, match: (p: string) => p.startsWith("/draws") },
     { label: "링크", path: "/links", icon: <IconPaperclipLine />, match: (p: string) => p === "/links" },
@@ -127,6 +129,7 @@ function Shell({ children }: { children: React.ReactNode }) {
               items={[
                 item("홈", "/", <IconHouseLine />, (p) => p === "/" || p.startsWith("/automations")),
                 item("내 템플릿", "/templates", <IconSquare2StackedLine />, (p) => p.startsWith("/templates")),
+                item("단체 DM", "/broadcasts", <IconMegaphoneLine />),
                 item("댓글 추첨", "/draws", <IconTrophyLine />, (p) => p.startsWith("/draws")),
                 item("내 링크", "/links", <IconPaperclipLine />),
               ]}
@@ -176,6 +179,7 @@ export function App() {
         <Route path="/templates" element={<TemplatesPage />} />
         <Route path="/templates/new" element={<TemplateEditorPage />} />
         <Route path="/templates/:id/edit" element={<TemplateEditorPage />} />
+        <Route path="/broadcasts" element={<BroadcastsPage />} />
         <Route path="/draws" element={<DrawsPage />} />
         <Route path="/links" element={<LinksPage />} />
         <Route path="/simulator" element={<SimulatorPage />} />

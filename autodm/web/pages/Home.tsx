@@ -2,6 +2,7 @@ import {
   IconBookmarkLine,
   IconChevronRightLine,
   IconDot3VerticalLine,
+  IconMegaphoneLine,
   IconPlusLine,
   IconQuestionmarkCircleLine,
   IconTrophyLine,
@@ -18,6 +19,7 @@ import { SegmentedControl, SegmentedControlItem } from "seed-design/ui/segmented
 import { Switch } from "seed-design/ui/switch";
 import type { AutomationView, HomeSummary } from "@shared/types";
 import { useConfirm, useErrorToast, useToast } from "../components/feedback";
+import { RiskBanner } from "../components/RiskNotice";
 import { TOUR_KEY, Tour } from "../components/Tour";
 import { TrendChart } from "../components/TrendChart";
 import { EmptyState, Loading, PageHeader, PostThumb, Section, StatTile, StatusBadge } from "../components/ui";
@@ -205,7 +207,8 @@ export function HomePage() {
           />
         )}
         {/* 페이지 배너는 한 화면에 하나만 — 연결 끊김 > 일시 중지 > 데모 안내 순서 */}
-        {!acc.needsReauth && (state.settings.dmPaused || state.settings.replyPaused) ? (
+        {/* 제한 신호로 답글만 자동으로 멈춘 경우는 아래 안전 장치 알림으로 알려요 */}
+        {!acc.needsReauth && (state.settings.dmPaused || (state.settings.replyPaused && !state.settings.risk.autoPausedReplies)) ? (
           <PageBanner
             tone="warning"
             title="일시 중지 중"
@@ -221,6 +224,8 @@ export function HomePage() {
           />
         )}
 
+        <RiskBanner />
+
         <div className="grid-4">
           <StatTile label="전송" value={fmtNumber(s.totals.sent)} hint={s.queued ? `순차 발송 대기 ${s.queued}건` : "보낸 DM 수 · 팔로우 확인 DM 포함"} />
           <StatTile label="읽음" value={fmtNumber(s.totals.read)} hint="DM을 연 사람 수" />
@@ -233,6 +238,7 @@ export function HomePage() {
           <List>
             {[
               { icon: <IconBookmarkLine />, title: "내 템플릿", desc: data.templateCount ? `${data.templateCount}개 저장됨` : "자주 쓰는 DM 저장하기", to: "/templates" },
+              { icon: <IconMegaphoneLine />, title: "단체 DM", desc: "24시간 안에 반응한 팬에게 한 번에 보내기", to: "/broadcasts" },
               { icon: <IconTrophyLine />, title: "댓글 추첨", desc: "이벤트 댓글에서 당첨자 뽑기", to: "/draws" },
               { icon: <IconQuestionmarkCircleLine />, title: "DM이 안 가요?", desc: "원인과 해결 방법", to: "/help" },
             ].map((c, i) => (

@@ -1,5 +1,6 @@
 import { useSearchParams } from "react-router-dom";
 import {
+  IconExclamationmarkTriangleLine,
   IconPlusLine,
   IconTimerLine,
 } from "@karrotmarket/react-monochrome-icon";
@@ -128,7 +129,7 @@ function BusinessMessage(props: {
 }
 
 export function SimulatorPage() {
-  const { state } = useAppState();
+  const { state, reload } = useAppState();
   const demo = useApi<DemoState>("/demo");
   const posts = useApi<PostWithMeta[]>("/posts");
   const [params] = useSearchParams();
@@ -265,17 +266,35 @@ export function SimulatorPage() {
         title="시뮬레이터"
         description="팬이 되어 댓글을 달고, DM을 받고, 버튼을 눌러 보세요. 실제 인스타그램 없이 자동화가 어떻게 동작하는지 확인할 수 있어요."
         actions={
-          <ActionButton
-            variant="neutralSolid"
-            onClick={() =>
-              call("/demo/fire-schedules", {}, () =>
-                toast("예약 시각을 지금으로 당겼어요", "positive"),
-              )
-            }
-          >
-            <PrefixIcon svg={<IconTimerLine />} />
-            예약 발송 지금 실행
-          </ActionButton>
+          <HStack gap="x2" wrap>
+            <ActionButton
+              variant="neutralWeak"
+              onClick={() =>
+                call<{ level: number }>("/demo/risk-signal", {}, async (r) => {
+                  await reload();
+                  toast(
+                    r.level >= 3
+                      ? `제한 신호 ${r.level}번 → 댓글 답글을 자동으로 멈췄어요 (DM은 계속 보내요)`
+                      : `제한 신호 ${r.level}번 → 답글을 10분에 하나씩만 달아요`,
+                  );
+                })
+              }
+            >
+              <PrefixIcon svg={<IconExclamationmarkTriangleLine />} />
+              제한 신호 체험
+            </ActionButton>
+            <ActionButton
+              variant="neutralSolid"
+              onClick={() =>
+                call("/demo/fire-schedules", {}, () =>
+                  toast("예약 시각을 지금으로 당겼어요", "positive"),
+                )
+              }
+            >
+              <PrefixIcon svg={<IconTimerLine />} />
+              예약 발송 지금 실행
+            </ActionButton>
+          </HStack>
         }
       />
       <div className="split split--sim">

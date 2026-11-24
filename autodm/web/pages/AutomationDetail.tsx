@@ -19,7 +19,7 @@ import { useAutomationActions } from "./Home";
 
 /** 발송 기록의 DM 종류 — 편집 화면 탭 이름과 같게 */
 const kindLabel = (kind: DeliveryLog["kind"], gated: boolean) =>
-  ({ gate: "팔로우 확인 DM", main: gated ? "팔로워 DM" : "DM", nonFollower: "비팔로워 DM", reply: "댓글 답글" })[kind];
+  ({ gate: "팔로우 확인 DM", main: gated ? "팔로워 DM" : "DM", nonFollower: "비팔로워 DM", reply: "댓글 답글", broadcast: "단체 DM" })[kind];
 const ORIGIN_LABEL: Record<DeliveryLog["origin"], string> = {
   comment: "댓글",
   share: "DM 공유",
@@ -27,6 +27,7 @@ const ORIGIN_LABEL: Record<DeliveryLog["origin"], string> = {
   postback: "팔로우 확인 버튼",
   batch: "일괄 발송",
   scheduled: "예약 발송",
+  broadcast: "단체 DM",
 };
 const STATUS_TEXT: Record<DeliveryLog["status"], { t: string; tone: "positive" | "neutral" | "critical" | "warning" | "informative" }> = {
   sent: { t: "보냄", tone: "positive" },

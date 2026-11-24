@@ -9,6 +9,10 @@ export interface AppStateData {
   publicBaseUrl: string;
   webhookUrl: string;
   redirectUri: string;
+  /** AI 문구 변형을 쓸 수 있는지 (ANTHROPIC_API_KEY) */
+  aiAvailable: boolean;
+  /** 최근 24시간 인스타그램 제한 신호 수 */
+  riskLevel: number;
 }
 
 interface Ctx {

@@ -37,6 +37,7 @@ import { Chip } from "seed-design/ui/chip";
 import { Modal } from "../Modal";
 import { IconBtn } from "../ui";
 import { Conversation, type DMTab } from "./Bubble";
+import { PersonalTextArea, VariantsEditor } from "./TextVariants";
 
 /* ───────────── DM 글 수정 ───────────── */
 
@@ -44,13 +45,21 @@ export function TextEditSheet(props: {
   open: boolean;
   title?: string;
   value: string;
+  /** 다른 문구를 함께 고칠 때 (팔로우 확인 DM은 없음) */
+  variants?: string[];
   onClose: () => void;
-  onSave: (v: string) => void;
+  onSave: (v: string, variants?: string[]) => void;
 }) {
   const [v, setV] = useState(props.value);
+  const [vars, setVars] = useState<string[]>(props.variants ?? []);
   useEffect(() => {
-    if (props.open) setV(props.value);
-  }, [props.open, props.value]);
+    if (props.open) {
+      setV(props.value);
+      setVars(props.variants ?? []);
+    }
+    // 열릴 때만 채워요 — 열려 있는 동안 화면이 다시 그려져도 고치던 내용이 지워지지 않게
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.open]);
   return (
     <Modal
       open={props.open}
@@ -59,20 +68,21 @@ export function TextEditSheet(props: {
       description="링크는 본문보다 버튼에 넣어 주세요. 본문의 주소는 눌리지 않을 수 있어요."
       primary={{
         label: "완료",
-        onClick: () => (props.onSave(v), props.onClose()),
+        onClick: () => (props.onSave(v, props.variants ? cleanVariants(vars) : undefined), props.onClose()),
         disabled: !v.trim(),
       }}
     >
-      <TextArea
-        label="DM 문구"
-        value={v}
-        onChange={setV}
-        max={LIMITS.dmText}
-        rows={6}
-        autoFocus
-      />
+      <VStack gap="x5">
+        <PersonalTextArea label="DM 문구" value={v} onChange={setV} rows={6} autoFocus />
+        {props.variants && <VariantsEditor text={v} variants={vars} onChange={setVars} />}
+      </VStack>
     </Modal>
   );
+}
+
+/** 빈 칸·중복 문구는 빼요 */
+export function cleanVariants(list: string[]): string[] {
+  return [...new Set(list.map((x) => x.trim()).filter(Boolean))];
 }
 
 /* ───────────── 링크 고르기 ───────────── */
@@ -252,7 +262,7 @@ export function ButtonEditSheet(props: {
 
 /* ───────────── 버튼 목록 (다이얼로그 안에서 펼쳐서 편집) ───────────── */
 
-function ButtonsEditor(props: {
+export function ButtonsEditor(props: {
   buttons: DMButton[];
   max: number;
   onChange: (b: DMButton[]) => void;
@@ -632,6 +642,11 @@ const TAB_LABEL: Record<DMTab, string> = {
   nonFollower: "비팔로워",
 };
 
+function withCleanVariants(dm: DMContent): DMContent {
+  const fix = (m: DMMessage): DMMessage => (m.variants ? { ...m, variants: cleanVariants(m.variants) } : m);
+  return { ...dm, main: fix(dm.main), followGate: { ...dm.followGate, nonFollower: fix(dm.followGate.nonFollower) } };
+}
+
 export function FullEditModal(props: {
   open: boolean;
   dm: DMContent;
@@ -686,7 +701,7 @@ export function FullEditModal(props: {
       secondary={{ label: "취소", onClick: requestClose }}
       primary={{
         label: "완료",
-        onClick: () => (props.onSave(dm), props.onClose()),
+        onClick: () => (props.onSave(withCleanVariants(dm)), props.onClose()),
       }}
     >
       {askDiscard && (
@@ -737,14 +752,12 @@ export function FullEditModal(props: {
                 댓글을 남긴 팬이 팔로우 여부와 상관없이 가장 먼저 받는 DM이에요.
                 팔로우를 부탁하는 문구를 넣어 주세요.
               </Text>
-              <TextArea
+              <PersonalTextArea
                 label="메시지"
                 value={dm.followGate.gateText}
                 onChange={(gateText) =>
                   setDm({ ...dm, followGate: { ...dm.followGate, gateText } })
                 }
-                max={LIMITS.dmText}
-                rows={5}
               />
               <TextInput
                 label="팔로우 확인 버튼 이름"
@@ -796,12 +809,15 @@ export function FullEditModal(props: {
               </VStack>
               {m.format === "text" ? (
                 <>
-                  <TextArea
+                  <PersonalTextArea
                     label="메시지"
                     value={m.text}
                     onChange={(text) => setM({ ...m, text })}
-                    max={LIMITS.dmText}
-                    rows={5}
+                  />
+                  <VariantsEditor
+                    text={m.text}
+                    variants={m.variants ?? []}
+                    onChange={(variants) => setM({ ...m, variants })}
                   />
                   <ButtonsEditor
                     buttons={m.buttons}
