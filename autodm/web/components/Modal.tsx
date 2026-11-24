@@ -1,4 +1,4 @@
-import { ResponsivePair } from "@seed-design/react";
+import { ResponsivePair, Snackbar } from "@seed-design/react";
 import type { ReactNode } from "react";
 import { ActionButton } from "seed-design/ui/action-button";
 import {
@@ -16,42 +16,71 @@ export function Modal(props: {
   description?: ReactNode;
   children: ReactNode;
   /** 확인 버튼 */
-  primary?: { label: string; onClick: () => void; disabled?: boolean; danger?: boolean; loading?: boolean };
+  primary?: {
+    label: string;
+    onClick: () => void;
+    disabled?: boolean;
+    danger?: boolean;
+    loading?: boolean;
+  };
   secondary?: { label: string; onClick: () => void };
   footer?: ReactNode;
   /** 넓은 다이얼로그 (두 칸 편집 화면) */
   wide?: boolean;
 }) {
   return (
-    <ResponsiveDialogRoot open={props.open} onOpenChange={(o) => !o && props.onClose()}>
+    <ResponsiveDialogRoot
+      open={props.open}
+      onOpenChange={(o) => !o && props.onClose()}
+    >
       <ResponsiveDialogContent
         title={props.title || undefined}
-        aria-label={typeof props.title === "string" && props.title ? undefined : "대화상자"}
+        aria-label={
+          typeof props.title === "string" && props.title
+            ? undefined
+            : "대화상자"
+        }
         description={props.description}
         className={props.wide ? "wide-dialog" : undefined}
       >
         <ResponsiveDialogBody>
-          <div style={{ maxHeight: props.wide ? "min(72vh, 760px)" : "min(64vh, 640px)", overflowY: "auto", padding: "2px 2px 8px" }}>
+          <div
+            style={{
+              maxHeight: props.wide ? "min(72vh, 760px)" : "min(64vh, 640px)",
+              overflowY: "auto",
+              padding: "2px 2px 8px",
+            }}
+          >
             {props.children}
           </div>
         </ResponsiveDialogBody>
         {(props.primary || props.footer) && (
           <ResponsiveDialogFooter>
-            {props.footer ?? (
-              <ResponsivePair gap="x2">
-                <ActionButton variant="neutralWeak" onClick={props.secondary?.onClick ?? props.onClose}>
-                  {props.secondary?.label ?? "취소"}
-                </ActionButton>
-                <ActionButton
-                  variant={props.primary!.danger ? "criticalSolid" : "neutralSolid"}
-                  disabled={props.primary!.disabled}
-                  loading={props.primary!.loading}
-                  onClick={props.primary!.onClick}
-                >
-                  {props.primary!.label}
-                </ActionButton>
-              </ResponsivePair>
-            )}
+            {/* 알림이 창의 버튼을 가리지 않게 */}
+            <Snackbar.AvoidOverlap>
+              <div style={{ width: "100%" }}>
+                {props.footer ?? (
+                  <ResponsivePair gap="x2">
+                    <ActionButton
+                      variant="neutralWeak"
+                      onClick={props.secondary?.onClick ?? props.onClose}
+                    >
+                      {props.secondary?.label ?? "취소"}
+                    </ActionButton>
+                    <ActionButton
+                      variant={
+                        props.primary!.danger ? "criticalSolid" : "neutralSolid"
+                      }
+                      disabled={props.primary!.disabled}
+                      loading={props.primary!.loading}
+                      onClick={props.primary!.onClick}
+                    >
+                      {props.primary!.label}
+                    </ActionButton>
+                  </ResponsivePair>
+                )}
+              </div>
+            </Snackbar.AvoidOverlap>
           </ResponsiveDialogFooter>
         )}
       </ResponsiveDialogContent>

@@ -205,7 +205,7 @@ export function Conversation(props: {
 }) {
   const { dm, tab, edit } = props;
   const gate = dm.followGate.enabled;
-  const gateTitle = dm.followGate.gateButtonTitle || "팔로우 했어요";
+  const gateTitle = dm.followGate.gateButtonTitle || "팔로우했어요";
   const current: DMTab = gate ? tab : "follower";
   const msg = current === "nonFollower" ? dm.followGate.nonFollower : dm.main;
   const maxButtons = current === "nonFollower" ? 2 : 3;

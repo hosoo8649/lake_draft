@@ -44,7 +44,7 @@ export function defaultDM(): DMContent {
       enabled: false,
       gateText:
         "댓글 남겨 주셔서 감사해요! 😊\n팔로워분들께만 보내 드리는 DM이에요. 팔로우 후 아래 버튼을 눌러 주세요.",
-      gateButtonTitle: "팔로우 했어요",
+      gateButtonTitle: "팔로우했어요",
       nonFollower: textMessage(
         "아직 팔로우가 확인되지 않았어요 🥲\n팔로우하신 뒤 아래 버튼을 한 번 더 눌러 주세요!",
       ),

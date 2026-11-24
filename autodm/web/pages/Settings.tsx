@@ -43,6 +43,12 @@ export function SettingsPage() {
 
   if (!state) return <Loading />;
   const s = state.settings;
+  const rateNum = Number(rate);
+  const rateError = !rate.trim()
+    ? "숫자를 넣어 주세요"
+    : !Number.isInteger(rateNum) || rateNum < 1 || rateNum > 1000
+      ? "1부터 1000 사이의 정수로 넣어 주세요"
+      : null;
 
   const patch = async (p: Partial<Settings>, msg?: string) => {
     try {
@@ -84,17 +90,27 @@ export function SettingsPage() {
         </Section>
 
         <Section title="발송 한도" description="인스타그램은 계정마다 일정 시간 동안 보낼 수 있는 DM 수를 제한해요. 넘는 만큼은 대기열에 두었다가 순차로 보내요.">
-          <HStack gap="x2" align="flex-end">
-            <div style={{ width: 200 }}>
-              <TextInput label="시간당 최대 DM 수" type="number" value={rate} onChange={setRate} suffix="건/시간" />
+          <HStack gap="x2" align="flex-start">
+            <div style={{ width: 220 }}>
+              <TextInput
+                label="시간당 최대 DM 수"
+                type="number"
+                value={rate}
+                onChange={setRate}
+                suffix="건/시간"
+                description={rateError ? undefined : "1~1000 사이로 정해요"}
+                error={rateError ?? undefined}
+              />
             </div>
-            <ActionButton
-              variant="neutralWeak"
-              disabled={!rate || Number(rate) === s.rateLimitPerHour}
-              onClick={() => patch({ rateLimitPerHour: Number(rate) }, "발송 한도를 저장했어요")}
-            >
-              저장
-            </ActionButton>
+            <div style={{ paddingTop: 30 }}>
+              <ActionButton
+                variant="neutralWeak"
+                disabled={!!rateError || Number(rate) === s.rateLimitPerHour}
+                onClick={() => patch({ rateLimitPerHour: Number(rate) }, "발송 한도를 저장했어요")}
+              >
+                저장
+              </ActionButton>
+            </div>
           </HStack>
         </Section>
 
@@ -134,7 +150,7 @@ export function SettingsPage() {
                 </ActionButton>
               </Row>
             )}
-            <Row title="새로워진 매니저 둘러보기" description="주요 화면과 기능을 다섯 장으로 다시 봐요">
+            <Row title="오토DM 둘러보기" description="주요 화면과 기능을 다섯 장으로 다시 봐요">
               <ActionButton size="small" variant="neutralWeak" onClick={() => nav("/?tour=1")}>
                 열기
               </ActionButton>

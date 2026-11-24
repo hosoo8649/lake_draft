@@ -32,6 +32,18 @@ export const STATUS_TONE: Record<AutomationStatus, "positive" | "neutral" | "war
   waiting: "informative",
 };
 
+/** 받침에 따라 조사를 골라요: josa("가격", "이/가") → "이" */
+export function josa(word: string, pair: "이/가" | "을/를" | "은/는" | "과/와"): string {
+  const [withB, withoutB] = pair.split("/");
+  const ch = word.trim().replace(/[’'"”)\]]+$/, "").slice(-1);
+  if (!ch) return withoutB;
+  const code = ch.charCodeAt(0);
+  if (code >= 0xac00 && code <= 0xd7a3) return (code - 0xac00) % 28 ? withB : withoutB;
+  if (/[013678]/.test(ch)) return withB; // 영·일·삼·육·칠·팔
+  if (/[lmnr]/i.test(ch)) return withB;
+  return withoutB;
+}
+
 export function triggerSummary(t: Trigger): string {
   if (t.type === "all") return "모든 댓글";
   if (t.keywords.length <= 3) return t.keywords.map((k) => `'${k}'`).join(", ");
@@ -52,6 +64,14 @@ export function fmtTime(ts: number): string {
   const ampm = h < 12 ? "오전" : "오후";
   const hh = h % 12 === 0 ? 12 : h % 12;
   return `${ampm} ${hh}:${pad(d.getMinutes())}`;
+}
+
+/** 오늘이면 시각만, 아니면 날짜와 시각 */
+export function fmtWhen(ts: number, now = Date.now()): string {
+  const a = new Date(ts);
+  const b = new Date(now);
+  const sameDay = a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  return sameDay ? fmtTime(ts) : `${a.getMonth() + 1}월 ${a.getDate()}일 ${fmtTime(ts)}`;
 }
 
 export function fmtRelative(ts: number, now = Date.now()): string {

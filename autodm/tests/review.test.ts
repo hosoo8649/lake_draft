@@ -452,3 +452,53 @@ describe("댓글 답글 (4차 검수)", () => {
     expect(h.reasons[0]).toMatch(/댓글 답글 1건을 달지 못했어요/);
   });
 });
+
+describe("UI 검수에서 나온 서버 규칙", () => {
+  beforeEach(() => {
+    clock = new Date("2026-11-23T10:00:00+09:00").getTime();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("주소 모양이 아닌 버튼 링크·내 링크는 받지 않는다", async () => {
+    const { services } = setup();
+    const { isValidUrl, normalizeUrl } = await import("../shared/validation");
+    for (const bad of ["구매링크", "스토어", "not a url", "https://a.b"]) expect(isValidUrl(normalizeUrl(bad)), bad).toBe(false);
+    for (const good of ["naver.com", "smartstore.naver.com/shop", "https://한국.한국", "http://1.2.3.4/x"]) expect(isValidUrl(normalizeUrl(good)), good).toBe(true);
+    const dm = defaultDM();
+    dm.main = textMessage("링크예요", [emptyButton("보러 가기", "구매링크")]);
+    expect(() => services.createAutomation(input({ dm }))).toThrow(/올바른 주소가 아니에요/);
+    expect(() => services.upsertLink({ title: "스토어", url: "스토어" })).toThrow(/올바른 링크/);
+  });
+
+  it("팔로우 확인 자동화의 기본 답글은 '링크·자료를 보냈어요'라고 말하지 않는다", async () => {
+    const { replyPool } = await import("../shared/presets");
+    for (const tone of ["polite", "friendly"] as const)
+      for (const n of [10, 20, 30]) {
+        const pool = replyPool(tone, n, [], { gated: true });
+        expect(pool.length).toBeGreaterThanOrEqual(3);
+        expect(pool.some((t) => /링크|자료|정보|요청|선물|답변/.test(t))).toBe(false);
+      }
+  });
+
+  it("시간당 최대 DM 수는 1~1000 정수만 저장한다", async () => {
+    const store = new Store(null);
+    const { app } = createApp(store);
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((r) => server.once("listening", r));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const patch = (v: unknown) =>
+      fetch(`${base}/api/settings`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "x-autodm": "1" },
+        body: JSON.stringify({ rateLimitPerHour: v }),
+      });
+    try {
+      for (const bad of [0, -5, 99999, 1.5]) expect((await patch(bad)).status, String(bad)).toBe(400);
+      expect((await patch(120)).status).toBe(200);
+      expect(store.db.settings.rateLimitPerHour).toBe(120);
+    } finally {
+      server.close();
+    }
+  });
+});
+

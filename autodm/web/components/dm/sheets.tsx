@@ -54,7 +54,7 @@ export function LinkPicker(props: { url: string; onChange: (url: string, linkId?
     <VStack gap="x3">
       <SegmentedControl aria-label="링크 넣는 방법" value={mode} onValueChange={(v) => setMode(v as "paste" | "mine")}>
         <SegmentedControlItem value="paste">주소 붙여넣기</SegmentedControlItem>
-        <SegmentedControlItem value="mine">내 링크에서 고르기</SegmentedControlItem>
+        <SegmentedControlItem value="mine">내 링크</SegmentedControlItem>
       </SegmentedControl>
       {mode === "paste" ? (
         <TextInput
@@ -400,13 +400,18 @@ export function FullEditModal(props: {
   const [dm, setDm] = useState<DMContent>(cloneDeep(props.dm));
   const [tab, setTab] = useState<DMTab>(props.initialTab);
   const [cardIdx, setCardIdx] = useState(0);
+  const [askDiscard, setAskDiscard] = useState(false);
   useEffect(() => {
     if (props.open) {
       setDm(cloneDeep(props.dm));
       setTab(props.dm.followGate.enabled ? props.initialTab : "follower");
       setCardIdx(props.initialCard ?? 0);
+      setAskDiscard(false);
     }
   }, [props.open]);
+  // 고친 내용이 있으면 X·취소로 닫기 전에 그 자리에서 한 번 더 물어봐요 (창 위에 창을 띄우지 않아요)
+  const dirty = props.open && JSON.stringify(dm) !== JSON.stringify(props.dm);
+  const requestClose = () => (dirty && !askDiscard ? setAskDiscard(true) : props.onClose());
 
   const gate = dm.followGate.enabled;
   const msgKey = tab === "nonFollower" ? "nonFollower" : "main";
@@ -419,11 +424,25 @@ export function FullEditModal(props: {
   return (
     <Modal
       open={props.open}
-      onClose={props.onClose}
+      onClose={requestClose}
       title="DM 전체 편집하기"
       wide
+      secondary={{ label: "취소", onClick: requestClose }}
       primary={{ label: "완료", onClick: () => (props.onSave(dm), props.onClose()) }}
     >
+      {askDiscard && (
+        <div className="discard-bar" role="alert">
+          <Text textStyle="t4Medium">고친 내용이 있어요. 저장하지 않고 닫을까요?</Text>
+          <HStack gap="x2">
+            <ActionButton size="small" variant="neutralWeak" onClick={() => setAskDiscard(false)}>
+              계속 고치기
+            </ActionButton>
+            <ActionButton size="small" variant="criticalSolid" onClick={props.onClose}>
+              저장 안 하고 닫기
+            </ActionButton>
+          </HStack>
+        </div>
+      )}
       {gate && (
         <div className="u-tabs" role="tablist" aria-label="받는 사람">
           {(["gate", "follower", "nonFollower"] as DMTab[]).map((t) => (

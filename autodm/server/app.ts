@@ -373,7 +373,11 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
     const body = req.body as Partial<Settings>;
     if (typeof body.dmPaused === "boolean") s.dmPaused = body.dmPaused;
     if (typeof body.replyPaused === "boolean") s.replyPaused = body.replyPaused;
-    if (typeof body.rateLimitPerHour === "number") s.rateLimitPerHour = Math.max(1, Math.min(1000, Math.round(body.rateLimitPerHour)));
+    if (body.rateLimitPerHour !== undefined) {
+      const n = Number(body.rateLimitPerHour);
+      if (!Number.isInteger(n) || n < 1 || n > 1000) throw new HttpError(400, "시간당 최대 DM 수는 1부터 1000 사이의 정수로 넣어 주세요");
+      s.rateLimitPerHour = n;
+    }
     if (typeof body.publicBaseUrl === "string") s.publicBaseUrl = body.publicBaseUrl.trim().replace(/\/$/, "");
     store.changed();
     res.json(s);
@@ -429,7 +433,8 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
 
   api.post("/demo/postback", demoOnly, async (req, res) => {
     const fan = fanOf(req.body.fanId);
-    db().demo.inbox.push({ id: uid("dm"), fanId: fan.id, from: "fan", createdAt: now(), text: `[버튼] ${req.body.title ?? ""}` });
+    // 인스타그램처럼 팬이 누른 버튼 이름이 팬의 메시지로 보여요
+    db().demo.inbox.push({ id: uid("dm"), fanId: fan.id, from: "fan", createdAt: now(), text: String(req.body.title ?? "") });
     res.json(await engine.handlePostback(fan.id, fan.username, String(req.body.payload ?? "")));
   });
 

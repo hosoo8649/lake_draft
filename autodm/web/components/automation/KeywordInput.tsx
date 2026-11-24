@@ -3,7 +3,7 @@ import { HStack, Icon, Text, VStack } from "@seed-design/react";
 import { useState } from "react";
 import { Chip } from "seed-design/ui/chip";
 import { LIMITS } from "@shared/limits";
-import { keywordAddError, keywordsTotalChars, normalizeKeyword, splitKeywordInput } from "@shared/validation";
+import { keywordAddError, keywordKey, keywordsTotalChars, normalizeKeyword, splitKeywordInput } from "@shared/validation";
 
 export function KeywordInput(props: {
   keywords: string[];
@@ -12,6 +12,8 @@ export function KeywordInput(props: {
   ideas: string[];
   showEmptyError?: boolean;
   disabled?: boolean;
+  /** 입력 상자 아래 안내 (기본: 자동 DM 기준) */
+  hint?: string;
 }) {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +37,15 @@ export function KeywordInput(props: {
 
   const ideas = props.ideas.filter((i) => !props.keywords.some((k) => normalizeKeyword(k) === normalizeKeyword(i)));
   const total = keywordsTotalChars(props.keywords);
-  const shownError = error ?? (props.showEmptyError && props.keywords.length === 0 ? "키워드를 넣어 주세요" : null);
+  const usedKeys = new Set(props.usedOnPost.map(keywordKey));
+  const conflict = props.keywords.find((k) => usedKeys.has(keywordKey(k)));
+  const shownError =
+    error ??
+    (conflict
+      ? `이미 이 게시물의 다른 자동화에 걸린 키워드예요: ${conflict} (눌러서 지워 주세요)`
+      : props.showEmptyError && props.keywords.length === 0
+        ? "키워드를 넣어 주세요"
+        : null);
 
   return (
     <VStack gap="x3">
@@ -93,7 +103,7 @@ export function KeywordInput(props: {
       </div>
       <HStack justify="space-between">
         <Text textStyle="t2Regular" color={shownError ? "fg.critical" : "fg.neutralSubtle"}>
-          {shownError ?? "‘링크 주세요’처럼 키워드가 문장 안에 있어도 보내요"}
+          {shownError ?? props.hint ?? "‘링크 주세요’처럼 키워드가 문장 안에 있어도 보내요"}
         </Text>
         <Text textStyle="t2Regular" color="fg.neutralSubtle">
           {total}/{LIMITS.keywordsTotalChars}자

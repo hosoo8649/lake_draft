@@ -50,12 +50,27 @@ export function keywordHit(trigger: Trigger, text: string): string | null {
 /* ───────────── URL ───────────── */
 
 export function isValidUrl(url: string): boolean {
+  const v = url.trim();
+  if (!v || /\s/.test(v)) return false;
   try {
-    const u = new URL(url.trim());
-    return u.protocol === "http:" || u.protocol === "https:";
+    const u = new URL(v);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    // 실제 주소처럼 점이 있는 도메인이어야 해요 ("구매링크", "스토어" 같은 단어는 링크가 아니에요)
+    const host = u.hostname;
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return true;
+    const parts = host.split(".");
+    if (parts.length < 2 || parts.some((x) => !x)) return false;
+    return /^([a-z]{2,63}|xn--[a-z0-9-]{2,59})$/i.test(parts[parts.length - 1]);
   } catch {
     return false;
   }
+}
+
+/** 버튼 링크 문제를 알기 쉽게 (비었는지, 주소 모양이 아닌지) */
+function buttonUrlError(url: string, p: string): string | null {
+  if (!url.trim()) return `${p}버튼 링크를 설정해 주세요`;
+  if (!isValidUrl(normalizeUrl(url))) return `${p}버튼 링크가 올바른 주소가 아니에요 (예: https://smartstore.naver.com/...)`;
+  return null;
 }
 
 /** 카드 이미지는 올린 파일(/uploads/...)도 쓸 수 있어요 */
@@ -94,7 +109,8 @@ export function validateMessage(m: DMMessage, rules: MessageRules): string[] {
       c.buttons.forEach((b) => {
         if (!b.title.trim()) errs.push(`${p}${i + 1}번 카드에 이름 없는 버튼이 있어요`);
         if (glen(b.title) > LIMITS.buttonTitle) errs.push(`${p}버튼 이름은 ${LIMITS.buttonTitle}자까지예요`);
-        if (!isValidUrl(b.url)) errs.push(`${p}버튼 링크를 설정해 주세요`);
+        const ue = buttonUrlError(b.url, p);
+        if (ue) errs.push(ue);
       });
     });
     return dedupe(errs);
@@ -105,7 +121,8 @@ export function validateMessage(m: DMMessage, rules: MessageRules): string[] {
   m.buttons.forEach((b) => {
     if (!b.title.trim()) errs.push(`${p}버튼 이름을 넣어 주세요`);
     if (glen(b.title) > LIMITS.buttonTitle) errs.push(`${p}버튼 이름은 ${LIMITS.buttonTitle}자까지예요`);
-    if (!isValidUrl(b.url)) errs.push(`${p}버튼 링크를 설정해 주세요`);
+    const ue = buttonUrlError(b.url, p);
+    if (ue) errs.push(ue);
   });
   return dedupe(errs);
 }

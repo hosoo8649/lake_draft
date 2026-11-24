@@ -1028,7 +1028,8 @@ button {
 
 @media (max-width: 760px) {
   .edit-grid {
-    grid-template-columns: 1fr;
+    /* 1fr은 캐러셀 카드 줄의 최소 너비만큼 늘어나요 → minmax(0, 1fr)로 화면 안에 맞춰요 */
+    grid-template-columns: minmax(0, 1fr);
   }
   .edit-grid__preview {
     position: static;
@@ -1337,4 +1338,50 @@ button {
 .idea-chip svg {
   width: 12px;
   height: 12px;
+}
+
+/* 휠 피커는 칸 너비(max-content)만큼 바깥을 넓히지 않게 — 시트가 화면보다 넓어지던 문제 */
+.wheel-wrap {
+  width: 100%;
+  min-width: 0;
+  contain: inline-size;
+}
+
+.edit-grid > *,
+.stage,
+.option-card__detail {
+  min-width: 0;
+}
+
+/* 긴 키워드 칩은 상자 안에서 말줄임 */
+.keyword-box .seed-chip__root {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.keyword-box .seed-chip__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.no-shrink {
+  flex-shrink: 0;
+}
+
+/* 저장하지 않고 닫을지 묻는 줄 (편집 창 안) */
+.discard-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--seed-dimension-x2);
+  margin-bottom: var(--seed-dimension-x3);
+  padding: var(--seed-dimension-x3);
+  border-radius: var(--seed-radius-r2);
+  background: var(--seed-color-bg-critical-weak);
 }

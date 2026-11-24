@@ -10,15 +10,13 @@ import { useConfirm, useErrorToast, useToast } from "../components/feedback";
 import { HealthText, Loading, PageHeader, PostThumb, Section, StatTile, StatusBadge } from "../components/ui";
 import { api, useApi } from "../lib/api";
 import { useAppState } from "../lib/appState";
-import { SEND_MODE_LABEL, copyText, fanGuideText, fmtDateTime, fmtNumber, fmtRelative, postTitle, triggerSummary } from "../lib/format";
+import { SEND_MODE_LABEL, TONE_LABEL, copyText, fanGuideText, fmtDateTime, fmtNumber, fmtRelative, josa, postTitle, triggerSummary } from "../lib/format";
+import { FRIENDLY_REPLIES, POLITE_REPLIES } from "@shared/presets";
 import { useAutomationActions } from "./Home";
 
-const KIND_LABEL: Record<DeliveryLog["kind"], string> = {
-  gate: "팔로우 확인 DM",
-  main: "본 DM",
-  nonFollower: "비팔로워 DM",
-  reply: "댓글 답글",
-};
+/** 발송 기록의 DM 종류 — 편집 화면 탭 이름과 같게 */
+const kindLabel = (kind: DeliveryLog["kind"], gated: boolean) =>
+  ({ gate: "팔로우 확인 DM", main: gated ? "팔로워 DM" : "DM", nonFollower: "비팔로워 DM", reply: "댓글 답글" })[kind];
 const ORIGIN_LABEL: Record<DeliveryLog["origin"], string> = {
   comment: "댓글",
   share: "DM 공유",
@@ -164,7 +162,7 @@ export function AutomationDetailPage() {
                   <tbody>
                     <tr>
                       <th style={{ width: 80 }}>전송</th>
-                      <td>실제로 보낸 DM 수. 팔로우 확인 DM과 본 DM을 둘 다 보냈다면 2로 세요</td>
+                      <td>실제로 보낸 DM 수. 팔로우 확인 DM과 팔로워 DM을 둘 다 보냈다면 2로 세요</td>
                     </tr>
                     <tr>
                       <th>읽음</th>
@@ -193,8 +191,32 @@ export function AutomationDetailPage() {
             </VStack>
           </Section>
 
-          <Section title="DM 공유 · DM 코드" description="여기서 바로 켜고 끌 수 있어요">
+          <Section title="추가 기능" description="DM 공유·DM 코드는 여기서 바로 켜고 끌 수 있어요. 댓글 답글은 ‘수정’에서 바꿔요">
             <VStack gap="x4">
+              <HStack justify="space-between" gap="x4" align="center">
+                <VStack gap="x0_5" style={{ minWidth: 0 }}>
+                  <HStack gap="x1_5" align="center">
+                    <Text textStyle="t5Bold">댓글에 답글 달기</Text>
+                    <Badge size="medium" variant="weak" tone={a.extras.commentReply.enabled && !state.settings.replyPaused ? "positive" : "neutral"}>
+                      {!a.extras.commentReply.enabled ? "꺼짐" : state.settings.replyPaused ? "설정에서 멈춤" : "켜짐"}
+                    </Badge>
+                  </HStack>
+                  <Text textStyle="t3Regular" color="fg.neutralMuted" maxLines={2}>
+                    {a.sendMode !== "immediate"
+                      ? "예약·일괄 발송에서는 쓸 수 없어요"
+                      : !a.extras.commentReply.enabled
+                        ? "DM이 나간 뒤 그 댓글에 답글을 달 수 있어요"
+                        : a.extras.commentReply.tone === "custom"
+                          ? `내 답글 ${a.extras.commentReply.custom.length}개 · 예) ${a.extras.commentReply.custom[0] ?? ""}`
+                          : `${TONE_LABEL[a.extras.commentReply.tone]} · ${a.extras.commentReply.count}개 돌려 쓰기 · 예) ${(a.extras.commentReply.tone === "polite" ? POLITE_REPLIES : FRIENDLY_REPLIES)[0]}`}
+                  </Text>
+                </VStack>
+                {a.sendMode === "immediate" && (
+                  <ActionButton size="small" variant="neutralWeak" disabled={sending} onClick={() => nav(`/automations/${a.id}/edit`)}>
+                    바꾸기
+                  </ActionButton>
+                )}
+              </HStack>
               <HStack justify="space-between" gap="x4">
                 <VStack gap="x0_5">
                   <Text textStyle="t5Bold">DM 공유에도 답하기</Text>
@@ -262,7 +284,7 @@ export function AutomationDetailPage() {
                     {data.recent.map((d) => (
                       <tr key={d.id}>
                         <td>@{d.username || d.userId}</td>
-                        <td>{KIND_LABEL[d.kind]}</td>
+                        <td>{kindLabel(d.kind, a.dm.followGate.enabled)}</td>
                         <td>{ORIGIN_LABEL[d.origin]}</td>
                         <td>
                           <VStack gap="x0_5">
@@ -305,7 +327,9 @@ export function AutomationDetailPage() {
               sampleComment={a.trigger.type === "keyword" ? `${a.trigger.keywords[0]} 주세요!` : undefined}
               header={
                 <Text textStyle="t3Medium" color="fg.neutralMuted" style={{ padding: "4px 4px 0" }}>
-                  {a.trigger.type === "all" ? "아무 댓글이나 달리면" : `${triggerSummary(a.trigger)}가 들어간 댓글에`}
+                  {a.trigger.type === "all"
+                    ? "모든 댓글에"
+                    : `${triggerSummary(a.trigger)}${josa(a.trigger.keywords[a.trigger.keywords.length - 1] ?? "", "이/가")} 들어간 댓글에`}
                 </Text>
               }
             />

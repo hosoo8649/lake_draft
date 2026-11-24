@@ -189,7 +189,7 @@ export function DrawsPage() {
                   </button>
                 ))}
                 {trigger.type === "keyword" && (
-                  <KeywordInput keywords={trigger.keywords} onChange={(k) => setTrigger({ type: "keyword", keywords: k })} usedOnPost={[]} ideas={["응모", "참여", "이벤트"]} />
+                  <KeywordInput keywords={trigger.keywords} onChange={(k) => setTrigger({ type: "keyword", keywords: k })} usedOnPost={[]} ideas={["응모", "참여", "이벤트"]} hint="‘응모합니다!’처럼 키워드가 문장 안에 있어도 후보에 들어가요" />
                 )}
               </VStack>
             </Section>

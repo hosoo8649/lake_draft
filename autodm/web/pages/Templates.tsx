@@ -15,6 +15,7 @@ import { Modal } from "../components/Modal";
 import { Loading, PageHeader, Section } from "../components/ui";
 import { api, useApi } from "../lib/api";
 import { useAppState } from "../lib/appState";
+import { josa } from "../lib/format";
 
 function buttonCount(t: Template): string {
   return t.dm.main.format === "carousel" ? `카드 ${t.dm.main.cards.length}장` : `버튼 ${t.dm.main.buttons.length}개`;
@@ -46,7 +47,7 @@ export function TemplatesPage() {
     setPreview(null);
     await new Promise((r) => setTimeout(r, 200));
     const ok = await confirm({
-      title: `‘${t.name}’을(를) 삭제할까요?`,
+      title: `‘${t.name}’${josa(t.name, "을/를")} 삭제할까요?`,
       description: "템플릿을 지워도 그 템플릿으로 만든 자동화는 그대로 남아요.",
       confirmLabel: "삭제",
       danger: true,

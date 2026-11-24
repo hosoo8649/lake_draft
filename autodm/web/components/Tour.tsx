@@ -33,7 +33,7 @@ const SLIDES = [
 
 export const TOUR_KEY = "autodm:tour-seen";
 
-/** 새로워진 매니저 둘러보기 */
+/** 오토DM 둘러보기 */
 export function Tour(props: { open: boolean; onClose: () => void }) {
   const [i, setI] = useState(0);
   const last = i === SLIDES.length - 1;

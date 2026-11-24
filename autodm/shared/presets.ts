@@ -69,10 +69,24 @@ export const FRIENDLY_REPLIES: string[] = [
   "늘 고마워요! DM 체크~ 💖",
 ];
 
-export function replyPool(tone: "polite" | "friendly" | "custom", count: number, custom: string[]): string[] {
+/** "링크·자료를 보냈어요"처럼 내용을 받았다고 말하는 답글 — 팔로우 확인 자동화에는 맞지 않아요 */
+const CLAIMS_CONTENT = /링크|자료|정보|요청|선물|답변/;
+
+/**
+ * 답글 후보. 팔로우 확인을 켠 자동화는 비팔로워가 확인 DM만 받을 수 있어서
+ * 기본 답글 중 "DM 확인해 주세요"처럼 내용을 받았다고 말하지 않는 것만 써요.
+ */
+export function replyPool(
+  tone: "polite" | "friendly" | "custom",
+  count: number,
+  custom: string[],
+  opts: { gated?: boolean } = {},
+): string[] {
   if (tone === "custom") return custom.map((s) => s.trim()).filter(Boolean);
-  const base = tone === "polite" ? POLITE_REPLIES : FRIENDLY_REPLIES;
-  return base.slice(0, count);
+  const base = (tone === "polite" ? POLITE_REPLIES : FRIENDLY_REPLIES).slice(0, count);
+  if (!opts.gated) return base;
+  const safe = base.filter((t) => !CLAIMS_CONTENT.test(t));
+  return safe.length >= 3 ? safe : base;
 }
 
 /* ───────────── 기본 템플릿 ───────────── */

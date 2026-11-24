@@ -2,9 +2,17 @@ import { HStack, Text } from "@seed-design/react";
 import { useEffect, useRef, useState } from "react";
 import type { DailyPoint } from "@shared/types";
 
+const DOW = ["일", "월", "화", "수", "목", "금", "토"];
+/** "2026-11-19" → "11월 19일 (목)" (툴팁·표) */
+const fullDayLabel = (iso: string) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return `${m}월 ${d}일 (${DOW[new Date(y, m - 1, d).getDay()]})`;
+};
+
 /** 최근 7일 보낸 DM·클릭 — 같은 단위(건수)라 한 축에 묶은 막대 */
 const SERIES = [
-  { key: "sent" as const, label: "보낸 DM", color: "var(--seed-color-palette-blue-700)" },
+  { key: "sent" as const, label: "전송", color: "var(--seed-color-palette-blue-700)" },
   { key: "clicks" as const, label: "클릭", color: "var(--seed-color-palette-carrot-600)" },
 ];
 
@@ -139,7 +147,7 @@ export function TrendChart({ data }: { data: DailyPoint[] }) {
           }}
         >
           <Text as="p" textStyle="t3Bold">
-            {data[hover].date}
+            {fullDayLabel(data[hover].date)}
           </Text>
           {SERIES.map((s) => (
             <Text as="p" key={s.key} textStyle="t3Regular" color="fg.neutralMuted">
@@ -155,14 +163,14 @@ export function TrendChart({ data }: { data: DailyPoint[] }) {
           <thead>
             <tr>
               <th>날짜</th>
-              <th>보낸 DM</th>
+              <th>전송</th>
               <th>클릭</th>
             </tr>
           </thead>
           <tbody>
             {data.map((d) => (
               <tr key={d.date}>
-                <td>{d.date}</td>
+                <td>{fullDayLabel(d.date)}</td>
                 <td>{d.sent.toLocaleString("ko-KR")}</td>
                 <td>{d.clicks.toLocaleString("ko-KR")}</td>
               </tr>

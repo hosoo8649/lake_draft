@@ -109,7 +109,7 @@ export function ConnectPage() {
 
   // 데모로 연결돼 있으면 위 ‘연동된 계정’에 다시 시작 버튼이 있어요
   const demoSection = !acc?.connected && (
-          <Section title="데모로 체험하기" description="Meta 앱 없이 PC에서 바로 모든 자동 DM 기능을 시험해 봐요">
+          <Section title="데모로 체험하기" description="Meta 앱 없이 바로 모든 자동 DM 기능을 시험해 봐요">
             <VStack gap="x3">
               <Text textStyle="t4Regular" color="fg.neutralMuted">
                 가상의 계정(@my_studio)·게시물 6개·팬 12명이 준비돼요. 시뮬레이터에서 팬처럼 댓글을 달고, 받은 DM의 버튼을 눌러 보며 팔로우 확인·예약·일괄 발송까지 확인할 수 있어요.

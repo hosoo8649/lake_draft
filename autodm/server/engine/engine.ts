@@ -428,7 +428,7 @@ export class Engine {
   /** 답글 고르기 — 같은 게시물에서 최근에 단 답글과 겹치지 않게 (자동화가 여러 개여도 게시물 기준) */
   private nextReply(a: Automation): string {
     const r = a.extras.commentReply;
-    const pool = [...new Set(replyPool(r.tone, r.count, r.custom))];
+    const pool = [...new Set(replyPool(r.tone, r.count, r.custom, { gated: a.dm.followGate.enabled }))];
     if (!pool.length) return "DM 보냈어요!";
     const key = a.postId ?? a.id;
     const recent = this.db.recentReplies[key] ?? [];

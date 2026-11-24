@@ -107,11 +107,7 @@ function AutomationRow({ a }: { a: AutomationView }) {
           onCheckedChange={(v) => act.toggle(a, v)}
           aria-label="자동화 켜고 끄기"
         />
-      ) : (
-        <Badge size="medium" variant="weak" tone="neutral">
-          {a.sendMode === "scheduled" ? "예약" : a.sendMode === "batch" ? "일괄" : "대기"}
-        </Badge>
-      )}
+      ) : null}
       <MenuRoot>
         <MenuTrigger asChild>
           <button type="button" className="icon-btn" aria-label="더 보기">
@@ -187,11 +183,6 @@ export function HomePage() {
         description={`@${acc.username}의 자동 DM 성과와 게시물별 자동화를 한눈에 봐요`}
         actions={
           <>
-            {(state.settings.dmPaused || state.settings.replyPaused) && (
-              <Badge size="large" variant="solid" tone="warning">
-                {state.settings.dmPaused ? "DM 발송 일시 중지" : "댓글 답글 일시 중지"}
-              </Badge>
-            )}
             <ActionButton variant="brandSolid" onClick={() => nav("/automations/new")}>
               <PrefixIcon svg={<IconPlusLine />} />
               자동화 추가
@@ -227,10 +218,10 @@ export function HomePage() {
         )}
 
         <div className="grid-4">
-          <StatTile label="보낸 DM" value={fmtNumber(s.totals.sent)} hint={s.queued ? `순차 발송 대기 ${s.queued}건` : "팔로우 확인 DM 포함"} />
+          <StatTile label="전송" value={fmtNumber(s.totals.sent)} hint={s.queued ? `순차 발송 대기 ${s.queued}건` : "보낸 DM 수 · 팔로우 확인 DM 포함"} />
           <StatTile label="읽음" value={fmtNumber(s.totals.read)} hint="DM을 연 사람 수" />
-          <StatTile label="클릭" value={fmtNumber(s.totals.clicks)} hint="버튼·링크 클릭 횟수" />
-          <StatTile label="클릭률" value={`${s.totals.ctr}%`} hint={`운영 중인 자동화 ${s.totals.running}개`} />
+          <StatTile label="클릭" value={fmtNumber(s.totals.clicks)} hint="버튼·링크 클릭 수" />
+          <StatTile label="클릭률" value={`${s.totals.ctr}%`} hint="전송한 DM 대비 클릭 수" />
         </div>
 
         <div className="grid-3 grid-3--stack">

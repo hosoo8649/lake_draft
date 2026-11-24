@@ -9,19 +9,19 @@ import { ProgressCircle } from "seed-design/ui/progress-circle";
 import { cloneDeep, defaultDM, defaultExtras, emptyButton, reissueIds, textMessage } from "@shared/factory";
 import { GENERIC_KEYWORD_IDEAS } from "@shared/presets";
 import type { AutomationView, DMContent, Extras, LinkItem, SendMode, Template, Trigger } from "@shared/types";
-import { validateDM, validateExtras, validateTrigger } from "@shared/validation";
+import { keywordKey, validateDM, validateExtras, validateTrigger } from "@shared/validation";
 import { ExtrasEditor } from "../components/automation/ExtrasEditor";
 import { KeywordInput } from "../components/automation/KeywordInput";
 import { PostGrid, PostPicker, TemplateList, TemplatePreviewCard, type PostWithMeta } from "../components/automation/Pickers";
 import { SchedulePicker, SendModeOptions, defaultScheduleAt } from "../components/automation/SendMode";
 import { DMStage } from "../components/dm/DMEditor";
-import { useConfirm, useErrorToast, useToast } from "../components/feedback";
+import { useConfirm, useErrorToast, useToast, useDismissToast } from "../components/feedback";
 import { TextInput } from "../components/fields";
 import { Modal } from "../components/Modal";
 import { Loading, PageHeader, PostThumb, FooterBar } from "../components/ui";
 import { ApiError, api, useApi } from "../lib/api";
 import { useAppState } from "../lib/appState";
-import { SEND_MODE_LABEL, fmtDateTime, postTitle, triggerSummary } from "../lib/format";
+import { SEND_MODE_LABEL, fmtDateTime, josa, postTitle, triggerSummary } from "../lib/format";
 import { useLeaveGuard } from "../lib/useLeaveGuard";
 
 interface Draft {
@@ -87,7 +87,9 @@ function countChanges(a: AutomationView, d: Draft): number {
 
 function triggerLine(t: Trigger): string {
   if (t.type === "all") return "아무 댓글이나 달리면";
-  return t.keywords.length ? `${t.keywords.map((k) => `‘${k}’`).join(" ")}가 들어간 댓글` : "키워드를 넣어 주세요";
+  return t.keywords.length
+    ? `${t.keywords.map((k) => `‘${k}’`).join(" ")}${josa(t.keywords[t.keywords.length - 1], "이/가")} 들어간 댓글`
+    : "키워드를 넣어 주세요";
 }
 
 /** 최종 확인의 각 단계 — 확인을 마치면 한 줄 요약으로 접혀요 */
@@ -147,6 +149,10 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
 
   const [draft, setDraft] = useState<Draft>(newDraft);
   const [step, setStep] = useState<Step>("post");
+  const dismissToast = useDismissToast();
+  const previewRef = useRef<HTMLDivElement>(null);
+  // 단계를 넘기면 이전 단계의 알림은 닫아요
+  useEffect(() => dismissToast(), [step]);
   const [open, setOpen] = useState<Record<Sec, boolean>>({ trigger: true, dm: false, extras: false });
   const [done, setDone] = useState<Record<Sec, boolean>>({ trigger: false, dm: false, extras: false });
   const [touched, setTouched] = useState(false);
@@ -280,8 +286,21 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
   }, [templates.data, draft.templateId]);
 
   /* ───── 검증 ───── */
-  const triggerErrors = validateTrigger(draft.trigger);
-  const dmErrors = validateDM(draft.dm);
+  // 복제하거나 게시물을 바꿨을 때 이미 이 게시물에 걸린 키워드·모든 댓글과 겹치는지 바로 알려 줘요
+  const takenKeys = new Set(usedOnPost.map(keywordKey));
+  const triggerErrors = [
+    ...validateTrigger(draft.trigger),
+    ...(draft.trigger.type === "keyword"
+      ? draft.trigger.keywords.filter((k) => takenKeys.has(keywordKey(k))).map((k) => `이미 이 게시물에 걸린 키워드예요: ${k}`)
+      : allTaken
+        ? ["이 게시물에는 이미 모든 댓글 자동화가 있어요"]
+        : []),
+  ];
+  // 기본 템플릿의 예시 날짜(00월 00일)를 그대로 보내지 않게
+  const placeholderLeft = [draft.dm.main.text, draft.dm.followGate.nonFollower.text, draft.dm.followGate.gateText].some((t) =>
+    /00월\s*00일/.test(t ?? ""),
+  );
+  const dmErrors = [...validateDM(draft.dm), ...(placeholderLeft ? ["DM의 예시 날짜(00월 00일)를 실제 날짜로 바꿔 주세요"] : [])];
   const extrasErrors = validateExtras(draft.extras, original?.sendMode ?? "immediate");
 
   const confirmSection = (s: Sec) => {
@@ -292,6 +311,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
       return;
     }
     const next = SECS[SECS.indexOf(s) + 1];
+    dismissToast(); // 고친 뒤에는 남아 있던 오류 알림을 닫아요
     setDone((d) => ({ ...d, [s]: true }));
     setOpen((o) => ({ ...o, [s]: false, ...(next && !done[next] ? { [next]: true } : {}) }));
     setShowErrors(false);
@@ -435,7 +455,12 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
     mode === "edit"
       ? { title: "자동화 수정", desc: "바꾼 내용은 다음 댓글부터 적용돼요" }
       : step === "post"
-        ? { title: "어떤 게시물의 댓글에 반응할까요?", desc: "캐러셀·릴스도 고를 수 있어요" }
+        ? {
+            title: dupId ? "복제한 자동화를 어느 게시물에 걸까요?" : "어떤 게시물의 댓글에 반응할까요?",
+            desc: dupId
+              ? `‘${dup.data?.automation.title || (dup.data ? triggerSummary(dup.data.automation.trigger) : "")}’ 자동화의 조건·DM·추가 기능을 그대로 가져와요. 같은 게시물이면 키워드는 바꿔 주세요`
+              : "캐러셀·릴스도 고를 수 있어요",
+          }
         : step === "template"
           ? { title: "어떤 템플릿으로 보낼까요?", desc: "템플릿을 고르면 팬이 받을 DM을 미리 볼 수 있어요" }
           : { title: "최종 확인", desc: "아래 세 가지를 차례로 확인해 주세요. 확인을 마친 단계는 한 줄 요약으로 접혀요." };
@@ -663,7 +688,12 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
               mine={templates.data.mine}
               builtin={templates.data.builtin}
               selectedId={draft.templateId}
-              onSelect={applyTemplate}
+              onSelect={(t) => {
+                applyTemplate(t);
+                // 휴대폰에서는 미리보기가 목록 아래에 있어서, 고르면 미리보기로 내려가요
+                if (window.matchMedia("(max-width: 767px)").matches)
+                  requestAnimationFrame(() => previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+              }}
               onAdd={() => {
                 sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ draft, code }));
                 allowLeave();
@@ -676,7 +706,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
               }}
               onDelete={async (t) => {
                 const ok = await confirm({
-                  title: `‘${t.name}’을(를) 삭제할까요?`,
+                  title: `‘${t.name}’${josa(t.name, "을/를")} 삭제할까요?`,
                   description: "템플릿을 지워도 그 템플릿으로 만든 자동화는 그대로 남아요.",
                   confirmLabel: "삭제",
                   danger: true,
@@ -692,7 +722,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
               💡 ‘추천’ 표시가 붙은 템플릿은 많이 쓰는 템플릿이에요. 기본 템플릿의 키워드는 다음 단계에서 정해요.
             </Text>
           </VStack>
-          <div className="split__aside">
+          <div className="split__aside" ref={previewRef} style={{ scrollMarginTop: 12 }}>
             <TemplatePreviewCard
               template={selectedTemplate ? { dm: draft.dm, extras: draft.extras } : null}
               username={state.account.username}
@@ -700,7 +730,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
             />
           </div>
           <FooterBar style={{ gridColumn: "1 / -1" }}>
-            <ActionButton variant="neutralWeak" size="large" onClick={() => setStep("post")}>
+            <ActionButton variant="neutralOutline" size="large" onClick={() => setStep("post")}>
               이전
             </ActionButton>
             <ActionButton
@@ -726,7 +756,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
             <Callout
               tone="informative"
               title="이 게시물의 모든 댓글에 링크를 안내하는 DM을 제안했어요"
-              description="그대로 쓰려면 ‘이대로 등록’을 누르세요. 설정 값이 마음에 안 들면 각 단계를 열어 직접 수정할 수 있어요."
+              description="‘즉시 발송으로 등록’을 누르면 지금부터 바로 보내요. 예약·일괄 발송으로 보내려면 ‘자동화 등록’을 눌러 발송 방식을 골라요. 설정이 마음에 안 들면 각 단계를 열어 고칠 수 있어요."
             />
           )}
           {triggerSection}
@@ -771,7 +801,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
               <>
                 {fromLink.current && (
                   <ActionButton variant="neutralSolid" size="large" onClick={() => void register("immediate")}>
-                    이대로 등록
+                    즉시 발송으로 등록
                   </ActionButton>
                 )}
                 <ActionButton variant="brandSolid" size="large" onClick={openSendSheet}>

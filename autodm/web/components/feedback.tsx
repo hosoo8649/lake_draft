@@ -16,6 +16,7 @@ import { ApiError } from "../lib/api";
 
 type ToastFn = (message: string, variant?: "default" | "positive" | "critical") => void;
 const ToastCtx = createContext<ToastFn>(() => {});
+const DismissCtx = createContext<() => void>(() => {});
 
 function ToastBridge({ children }: { children: ReactNode }) {
   const adapter = useSnackbarAdapter();
@@ -25,10 +26,17 @@ function ToastBridge({ children }: { children: ReactNode }) {
     },
     [adapter],
   );
-  return <ToastCtx.Provider value={toast}>{children}</ToastCtx.Provider>;
+  const dismiss = useCallback(() => adapter.dismiss(), [adapter]);
+  return (
+    <ToastCtx.Provider value={toast}>
+      <DismissCtx.Provider value={dismiss}>{children}</DismissCtx.Provider>
+    </ToastCtx.Provider>
+  );
 }
 
 export const useToast = () => useContext(ToastCtx);
+/** 떠 있는 알림 닫기 (단계를 넘기거나 오류를 고쳤을 때) */
+export const useDismissToast = () => useContext(DismissCtx);
 
 /** API 오류를 토스트로 */
 export function useErrorToast() {

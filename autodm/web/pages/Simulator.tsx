@@ -15,7 +15,7 @@ import { TextInput } from "../components/fields";
 import { Loading, PageHeader, PostThumb, Section } from "../components/ui";
 import { api, useApi } from "../lib/api";
 import { useAppState } from "../lib/appState";
-import { fmtTime, postTitle } from "../lib/format";
+import { fmtWhen, postTitle } from "../lib/format";
 
 const SKIP_REASON: Record<string, string> = {
   "no-match": "조건에 맞는 자동화가 없어 DM을 보내지 않았어요",
@@ -25,6 +25,17 @@ const SKIP_REASON: Record<string, string> = {
   duplicate: "이미 처리한 댓글이에요",
   "already-sent": "이 자동화로 이미 DM을 받은 사람이라 다시 보내지 않았어요 (같은 사람에게는 한 번만)",
   "reply-comment": "답글(대댓글)에는 반응하지 않아요",
+};
+
+/** 팔로우 확인 버튼을 눌렀을 때 보내지 않은 이유 */
+const POSTBACK_REASON: Record<string, string> = {
+  "already-sent": "이미 팔로워 DM을 보냈어요. 같은 사람에게는 한 번만 보내요",
+  cooldown: "방금 확인했어요. 잠시 뒤에 다시 눌러 주세요",
+  checking: "팔로우 여부를 확인하는 중이에요. 잠시만 기다려 주세요",
+  duplicate: "이미 처리한 버튼이에요",
+  "automation-deleted": "자동화가 삭제돼서 보내지 않았어요",
+  "unknown-payload": "이 버튼에 연결된 자동화가 없어요",
+  paused: "설정에서 DM 발송이 일시 중지돼 있어요",
 };
 
 function BusinessMessage(props: { m: DemoInboxMessage; username?: string; onButton: (b: NonNullable<DemoInboxMessage["buttons"]>[number]) => void }) {
@@ -130,7 +141,7 @@ export function SimulatorPage() {
 
   const comment = () =>
     call<{ automationId?: string; skipped?: string }>("/demo/comment", { postId, fanId, text, asOwner }, (r) => {
-      const msg = r.skipped ? SKIP_REASON[r.skipped] ?? r.skipped : "자동화가 반응했어요. 오른쪽 DM함을 확인하세요";
+      const msg = r.skipped ? (SKIP_REASON[r.skipped] ?? "보내지 않았어요") : "자동화가 반응했어요. 팬의 DM함을 확인해 보세요";
       setLastResult(msg);
       toast(msg, r.skipped ? "default" : "positive");
     });
@@ -138,7 +149,13 @@ export function SimulatorPage() {
   const onButton = async (b: NonNullable<DemoInboxMessage["buttons"]>[number]) => {
     if (b.type === "postback") {
       await call<{ follower?: boolean; skipped?: string }>("/demo/postback", { fanId, payload: b.payload, title: b.title }, (r) =>
-        toast(r.skipped ? r.skipped : r.follower ? "팔로워로 확인됐어요 → 본 DM을 보내요" : "아직 팔로우하지 않았어요 → 비팔로워 DM을 보내요"),
+        toast(
+          r.skipped
+            ? (POSTBACK_REASON[r.skipped] ?? "보내지 않았어요")
+            : r.follower
+              ? "팔로워로 확인됐어요 → 팔로워 DM을 보내요"
+              : "아직 팔로우하지 않았어요 → 비팔로워 DM을 보내요",
+        ),
       );
       return;
     }
@@ -321,7 +338,7 @@ export function SimulatorPage() {
               {(comments.data ?? []).slice(0, 60).map((c) => (
                 <VStack key={c.id} gap="x0_5" pb="x2" style={{ borderBottom: "1px solid var(--seed-color-stroke-neutral-subtle)" }}>
                   <Text textStyle="t3Regular">
-                    <b>@{c.username}</b> {c.text} <span style={{ color: "var(--seed-color-fg-neutral-subtle)" }}>· {fmtTime(c.createdAt)}</span>
+                    <b>@{c.username}</b> {c.text} <span style={{ color: "var(--seed-color-fg-neutral-subtle)" }}>· {fmtWhen(c.createdAt)}</span>
                   </Text>
                   {replies.get(c.id) && (
                     <Text textStyle="t3Regular" color="fg.neutralMuted">
@@ -361,7 +378,7 @@ export function SimulatorPage() {
                       <VStack key={m.id} gap="x0_5">
                         <BusinessMessage m={m} username={state.account.username} onButton={onButton} />
                         <Text textStyle="t1Regular" color="fg.neutralSubtle" style={{ paddingLeft: 32 }}>
-                          {fmtTime(m.createdAt)} {m.readAt ? "· 읽음" : ""}
+                          {fmtWhen(m.createdAt)} {m.readAt ? "· 읽음" : ""}
                         </Text>
                       </VStack>
                     ),

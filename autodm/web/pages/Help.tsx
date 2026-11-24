@@ -137,7 +137,7 @@ const GUIDE_STEPS = [
 export function HelpPage() {
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
-  const tab = (params.get("tab") as Tab) || "dm";
+  const tab = (params.get("tab") as Tab) || "guide";
   return (
     <div className="page page--narrow">
       <PageHeader title="도움말" description="이용 방법과 DM·연동 문제 해결 방법을 모았어요" />
