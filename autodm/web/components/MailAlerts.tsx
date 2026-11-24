@@ -73,7 +73,7 @@ export function MailAlertsSection() {
         />
       ) : (
         <VStack gap="x4">
-          <List className="list-flush">
+          <List>
             <ListSwitchItem
               title="메일로 알림 받기"
               detail="제한 신호(1·2·3번째), 댓글 답글 자동 멈춤, 인스타그램 연결 끊김"

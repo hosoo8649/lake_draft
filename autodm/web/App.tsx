@@ -55,7 +55,7 @@ function MobileShell({ children }: { children: React.ReactNode }) {
   const flow = /^\/(automations\/(new|[^/]+\/edit)|templates\/(new|[^/]+\/edit))/.test(pathname);
   if (flow) return <>{children}</>;
   return (
-    <div style={{ paddingBottom: 72 }}>
+    <div className="has-tabbar" style={{ paddingBottom: 72 }}>
       {children}
       <Snackbar.AvoidOverlap>
         <nav className="tabbar" aria-label="주요 메뉴">

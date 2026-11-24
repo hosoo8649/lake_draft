@@ -74,11 +74,13 @@ export function Section(props: {
           justify="space-between"
           align="center"
           gap="x3"
+          wrap
           pb="x4"
           px={props.flat ? "x5" : 0}
           pt={props.flat ? "x5" : 0}
         >
-          <VStack gap="x0_5">
+          {/* 휴대폰처럼 좁으면 제목이 깨지지 않게 오른쪽 버튼을 아래 줄로 내려요 */}
+          <VStack gap="x0_5" style={{ flex: "1 1 220px", minWidth: 0 }}>
             {props.title && (
               <Text as="h2" textStyle="t6Bold">
                 {props.title}

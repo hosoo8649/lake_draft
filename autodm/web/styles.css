@@ -174,8 +174,13 @@ button {
     margin-inline: calc(-1 * var(--seed-dimension-x4));
     padding-inline: var(--seed-dimension-x4);
   }
-  .footer-bar > * {
-    flex: 1;
+  /* 휴대폰: 아래 버튼은 가로를 꽉 채우고, 버튼이 둘이면 주 버튼을 더 넓게 (SEED 버튼 규칙보다 우선) */
+  .footer-bar.footer-bar > * {
+    flex: 1 1 0%;
+  }
+  .footer-bar.footer-bar > .seed-action-button--variant_brandSolid:not(:only-child),
+  .footer-bar.footer-bar > .seed-action-button--variant_neutralSolid:not(:only-child) {
+    flex: 2 1 0%;
   }
 }
 
@@ -503,11 +508,18 @@ button {
 
 /* ───────────── 하단 탭 (휴대폰 화면) ───────────── */
 
+:root {
+  /* 하단 탭 높이 (안전 영역 제외) — 아래 고정 버튼이 탭을 가리지 않게 함께 써요 */
+  --tabbar-h: 56px;
+}
+
 .tabbar {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
+  box-sizing: border-box;
+  height: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
   display: grid;
   /* SEED bottom navigation: 넓은 화면에서도 버튼 영역은 480px 안에 */
   grid-template-columns: repeat(5, minmax(0, 96px));
@@ -521,8 +533,9 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 2px;
-  padding: 8px 0 10px;
+  padding: 0;
   border: 0;
   background: transparent;
   font-size: var(--seed-font-size-t1);
@@ -674,6 +687,12 @@ button {
 .bubble__edit svg {
   width: 12px;
   height: 12px;
+}
+
+.bubble__edit::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
 }
 
 .pill {
@@ -1303,9 +1322,10 @@ button {
   border: 0;
 }
 
-/* 입력칸과 같은 줄에 맞춘 목록 (설정 › 발송 속도) */
-.list-flush .seed-list-item__root {
-  padding-inline: 0;
+/* 카드 안 목록: 줄 글자를 카드 제목·입력칸과 같은 선에 맞춰요 (누름 배경은 카드 여백까지) */
+.card:not(.card--flat):not(.card--list) .seed-list-item__root {
+  margin-inline: calc(-1 * var(--seed-dimension-spacing-x-global-gutter));
+  width: calc(100% + 2 * var(--seed-dimension-spacing-x-global-gutter));
 }
 
 /* 단체 DM: 휴대폰에서는 쓰는 칸 다음에 미리보기 */
@@ -1321,4 +1341,26 @@ button {
   .edit-grid--preview-last .phone__body {
     min-height: 0;
   }
+}
+
+/* 발송 기록 (휴대폰) */
+.log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--seed-dimension-x5) var(--seed-dimension-x3);
+}
+.log-list > li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--seed-dimension-x1_5);
+  padding-block: var(--seed-dimension-x3);
+}
+.log-list > li + li {
+  border-top: 1px solid var(--seed-color-stroke-neutral-subtle);
+}
+
+/* 하단 탭이 있는 화면(예: 댓글 추첨 단계)에서는 아래 고정 버튼을 탭 바로 위에 띄워요 */
+.has-tabbar .footer-bar {
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+  padding-bottom: var(--seed-dimension-x3);
 }

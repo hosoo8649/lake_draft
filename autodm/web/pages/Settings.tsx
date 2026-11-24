@@ -288,8 +288,7 @@ function SafetySection() {
               error={errs.rate ?? undefined}
             />
           </div>
-          {/* 위 입력칸과 왼쪽 줄을 맞춰요 */}
-          <List className="list-flush">
+          <List>
             <ListSwitchItem
               title="DM 고르게 나눠 보내기"
               detail={`한꺼번에 몰아서 보내지 않고 한도에 맞춰 간격을 둬요. 지금 한도라면 약 ${gap < 60 ? `${gap}초` : `${Math.round(gap / 60)}분`}에 1건씩 보내요.`}

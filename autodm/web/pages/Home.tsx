@@ -97,7 +97,7 @@ function AutomationRow({ a }: { a: AutomationView }) {
             </Badge>
           ) : null}
         </HStack>
-        <Text as="span" textStyle="t3Regular" color="fg.neutralMuted" maxLines={1}>
+        <Text as="span" textStyle="t3Regular" color="fg.neutralMuted" maxLines={2}>
           {a.sendMode === "immediate" && a.origin === "batch" ? "일괄 → 즉시 발송" : SEND_MODE_LABEL[a.sendMode]}
           {a.dm.followGate.enabled ? " · 팔로우 확인" : ""}
           {a.title ? ` · ${triggerSummary(a.trigger)}` : ""}

@@ -1,4 +1,5 @@
 import {
+  IconPaperplaneLine,
   IconPencilLine,
   IconTrashcanLine,
   IconPlusLine,
@@ -106,7 +107,8 @@ export function LinksPage() {
                   variant="neutralWeak"
                   onClick={() => nav(`/automations/new?link=${l.id}`)}
                 >
-                  📸 자동 DM 만들기
+                  <PrefixIcon svg={<IconPaperplaneLine />} />
+                  자동 DM 만들기
                 </ActionButton>
                 <IconBtn
                   label="수정"

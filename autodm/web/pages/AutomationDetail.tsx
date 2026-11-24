@@ -1,5 +1,5 @@
 import { IconDot3VerticalLine } from "@karrotmarket/react-monochrome-icon";
-import { HStack, Icon, Text, VStack } from "@seed-design/react";
+import { HStack, Icon, Text, VStack, useBreakpoint } from "@seed-design/react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ActionButton } from "seed-design/ui/action-button";
 import { Badge } from "seed-design/ui/badge";
@@ -41,6 +41,8 @@ export function AutomationDetailPage() {
   const { id } = useParams();
   const nav = useNavigate();
   const { state } = useAppState();
+  const bp = useBreakpoint();
+  const narrow = bp === "base" || bp === "sm";
   const { data, error, reload } = useApi<{ automation: AutomationView; recent: DeliveryLog[] }>(`/automations/${id}`);
   const act = useAutomationActions();
   const toast = useToast();
@@ -325,6 +327,40 @@ export function AutomationDetailPage() {
               <div style={{ padding: "0 20px 20px" }}>
                 <Text color="fg.neutralSubtle">아직 보낸 DM이 없어요.</Text>
               </div>
+            ) : narrow ? (
+              // 휴대폰: 다섯 칸 표 대신 한 사람씩 두 줄로
+              <ul className="log-list">
+                {data.recent.map((d) => (
+                  <li key={d.id}>
+                    <HStack justify="space-between" gap="x2" align="center">
+                      <Text textStyle="t4Medium" maxLines={1}>
+                        @{d.username || d.userId}
+                      </Text>
+                      <Text textStyle="t2Regular" color="fg.neutralSubtle" style={{ whiteSpace: "nowrap" }}>
+                        {fmtRelative(d.sentAt ?? d.createdAt)}
+                      </Text>
+                    </HStack>
+                    <HStack gap="x1_5" align="center" wrap>
+                      <Badge size="medium" variant="weak" tone={STATUS_TEXT[d.status].tone}>
+                        {STATUS_TEXT[d.status].t}
+                      </Badge>
+                      {d.readAt && (
+                        <Badge size="medium" variant="weak" tone="neutral">
+                          읽음
+                        </Badge>
+                      )}
+                      <Text textStyle="t3Regular" color="fg.neutralMuted">
+                        {kindLabel(d.kind, a.dm.followGate.enabled)} · {ORIGIN_LABEL[d.origin]}
+                      </Text>
+                    </HStack>
+                    {d.error && (
+                      <Text textStyle="t2Regular" color="fg.critical">
+                        {d.error}
+                      </Text>
+                    )}
+                  </li>
+                ))}
+              </ul>
             ) : (
               <div style={{ overflowX: "auto" }}>
                 <table className="table">
