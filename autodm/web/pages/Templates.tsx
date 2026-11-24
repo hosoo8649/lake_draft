@@ -1,10 +1,11 @@
 import { IconBookmarkLine, IconChevronRightLine, IconPlusLine } from "@karrotmarket/react-monochrome-icon";
 import { HStack, Icon, PrefixIcon, Text, VStack } from "@seed-design/react";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ActionButton } from "seed-design/ui/action-button";
 import { Badge } from "seed-design/ui/badge";
-import { Callout } from "seed-design/ui/callout";
+import { ActionableCallout } from "seed-design/ui/callout";
+import { List, ListButtonItem, ListDivider } from "seed-design/ui/list";
 import { SegmentedControl, SegmentedControlItem } from "seed-design/ui/segmented-control";
 import { LIMITS } from "@shared/limits";
 import type { Template } from "@shared/types";
@@ -62,24 +63,31 @@ export function TemplatesPage() {
     }
   };
 
-  const Row = ({ t }: { t: Template }) => (
-    <button type="button" className="option-card" style={{ alignItems: "center" }} onClick={() => setPreview(t)}>
-      <span className="option-card__icon">{t.builtin ? <span style={{ fontSize: 20 }}>{t.emoji}</span> : <Icon svg={<IconBookmarkLine />} />}</span>
-      <VStack gap="x0_5" grow as="span" style={{ minWidth: 0 }}>
-        <HStack gap="x1_5" as="span" wrap>
-          <Text textStyle="t5Bold">{t.name}</Text>
-          {t.recommended && (
-            <Badge size="medium" variant="solid" tone="brand">
-              추천
-            </Badge>
-          )}
-        </HStack>
-        <Text textStyle="t3Regular" color="fg.neutralMuted" maxLines={1}>
-          {t.builtin ? t.description : `${buttonCount(t)} · 이 템플릿으로 만든 자동화 ${t.usedCount}개`}
-        </Text>
-      </VStack>
-      <Icon svg={<IconChevronRightLine />} color="fg.neutralSubtle" />
-    </button>
+  /** 템플릿 목록 — SEED List (줄 전체를 눌러 미리보기) */
+  const TemplateRows = ({ list }: { list: Template[] }) => (
+    <List>
+      {list.map((t, i) => (
+        <Fragment key={t.id}>
+          {i > 0 && <ListDivider />}
+          <ListButtonItem
+            prefix={<span className="list-icon">{t.builtin ? <span aria-hidden>{t.emoji}</span> : <Icon svg={<IconBookmarkLine />} />}</span>}
+            title={
+              <HStack as="span" gap="x1_5" align="center" wrap>
+                {t.name}
+                {t.recommended && (
+                  <Badge size="medium" variant="weak" tone="neutral">
+                    추천
+                  </Badge>
+                )}
+              </HStack>
+            }
+            detail={t.builtin ? t.description : `${buttonCount(t)} · 이 템플릿으로 만든 자동화 ${t.usedCount}개`}
+            suffix={<Icon svg={<IconChevronRightLine />} color="fg.neutralSubtle" />}
+            onClick={() => setPreview(t)}
+          />
+        </Fragment>
+      ))}
+    </List>
   );
 
   return (
@@ -133,29 +141,21 @@ export function TemplatesPage() {
             <VStack gap="x3">
               <Text color="fg.neutralMuted">아직 저장한 템플릿이 없어요. 자주 보내는 DM을 템플릿으로 저장해 두면 다음부터 고르기만 하면 돼요.</Text>
               {suggestion.data && suggestion.data.sent > 0 && (
-                <Callout
+                <ActionableCallout
                   tone="informative"
                   title="자주 쓰던 DM으로 첫 템플릿 만들기"
                   description={`지금까지 가장 많이 보낸 DM(${suggestion.data.sent}건)으로 채워 드려요.`}
-                  linkProps={{ children: "만들기", onClick: () => nav("/templates/new?fromSuggestion=1") }}
+                  onClick={() => nav("/templates/new?fromSuggestion=1")}
                 />
               )}
             </VStack>
           ) : (
-            <VStack gap="x2">
-              {mine.map((t) => (
-                <Row key={t.id} t={t} />
-              ))}
-            </VStack>
+            <TemplateRows list={mine} />
           )}
         </Section>
 
         <Section title="기본 템플릿" description="자주 쓰는 상황별로 준비된 템플릿이에요">
-          <VStack gap="x2">
-            {data.builtin.map((t) => (
-              <Row key={t.id} t={t} />
-            ))}
-          </VStack>
+          <TemplateRows list={data.builtin} />
         </Section>
       </VStack>
 

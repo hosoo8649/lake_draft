@@ -39,7 +39,8 @@ export function automationHealth(store: Store, a: Automation, now = Date.now()):
   const replyNote = replyFailed.length
     ? [`댓글 답글 ${replyFailed.length}건을 달지 못했어요${replyFailed.at(-1)?.error ? ` (${replyFailed.at(-1)!.error})` : ""}`]
     : [];
-  const failed = recent.filter((d) => d.status === "failed");
+  // 받는 사람 쪽 사정(DM 차단 등)은 크리에이터가 고칠 수 없어서 경고에서 빼요 (발송 기록에는 남아요)
+  const failed = recent.filter((d) => d.status === "failed" && !d.recipientIssue);
   const retrying = recent.filter((d) => d.status === "retrying");
   const reasons = [...new Set([...failed, ...retrying].map((d) => d.error).filter(Boolean) as string[])].slice(0, 3);
   if (retrying.length) return { state: "retrying", failedCount: failed.length, reasons: [...reasons, ...replyNote] };

@@ -22,8 +22,8 @@ export class DemoGateway implements Gateway {
 
   private deliver(fanId: string, msg: OutgoingMessage, ctx: SendContext): SendResult {
     const fan = this.fan(fanId);
-    if (!fan) return { ok: false, error: "수신자를 찾을 수 없어요", retryable: false };
-    if (fan.restricted) return { ok: false, error: "수신자가 메시지를 받을 수 없는 상태예요", retryable: false };
+    if (!fan) return { ok: false, error: "수신자를 찾을 수 없어요", retryable: false, recipient: true };
+    if (fan.restricted) return { ok: false, error: "수신자가 메시지를 받을 수 없는 상태예요", retryable: false, recipient: true };
     const m: DemoInboxMessage = {
       id: uid("dm"),
       fanId,

@@ -176,7 +176,7 @@ export function ConnectPage() {
                   데모 처음부터 다시
                 </ActionButton>
               )}
-              <ActionButton variant="criticalSolid" onClick={disconnect}>
+              <ActionButton variant="ghost" color="fg.critical" onClick={disconnect}>
                 연동 해지
               </ActionButton>
             </HStack>
@@ -216,7 +216,7 @@ export function ConnectPage() {
                 disabled={!state?.liveAvailable || !state.publicBaseUrl}
                 onClick={() => setTerms(true)}
               >
-                🔗 인스타그램 연동하기
+                인스타그램 연동하기
               </ActionButton>
             </HStack>
           </VStack>
@@ -268,7 +268,7 @@ export function ConnectConfirmPage() {
             <ActionButton variant="brandSolid" size="large" onClick={() => setDone(true)}>
               맞아요
             </ActionButton>
-            <ActionButton variant="neutralWeak" size="large" onClick={() => (window.location.href = "/auth/instagram/start?force=1")}>
+            <ActionButton variant="ghost" size="large" onClick={() => (window.location.href = "/auth/instagram/start?force=1")}>
               다른 계정으로 연동하기
             </ActionButton>
           </VStack>

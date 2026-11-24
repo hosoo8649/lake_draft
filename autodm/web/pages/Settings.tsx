@@ -1,30 +1,19 @@
-import { HStack, Text, VStack } from "@seed-design/react";
-import { useEffect, useState } from "react";
+import { IconChevronRightLine, IconEyeLine, IconEyeSlashLine } from "@karrotmarket/react-monochrome-icon";
+import { HStack, Icon, Text, VStack } from "@seed-design/react";
+import { Fragment, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ActionButton } from "seed-design/ui/action-button";
 import { Callout } from "seed-design/ui/callout";
-import { Switch } from "seed-design/ui/switch";
+import { Switchmark } from "seed-design/ui/switch";
+import { List, ListButtonItem, ListDivider, ListSwitchItem } from "seed-design/ui/list";
 import type { Settings } from "@shared/types";
+import { isPublicHttpsUrl } from "@shared/validation";
 import { useConfirm, useErrorToast, useToast } from "../components/feedback";
 import { TextInput } from "../components/fields";
-import { Loading, PageHeader, Section } from "../components/ui";
+import { IconBtn, Loading, PageHeader, Section } from "../components/ui";
 import { api, useApi } from "../lib/api";
 import { useAppState } from "../lib/appState";
 import { copyText } from "../lib/format";
-
-function Row(props: { title: string; description: string; children: React.ReactNode }) {
-  return (
-    <HStack justify="space-between" align="flex-start" gap="x4" py="x3">
-      <VStack gap="x0_5">
-        <Text textStyle="t5Bold">{props.title}</Text>
-        <Text textStyle="t3Regular" color="fg.neutralMuted">
-          {props.description}
-        </Text>
-      </VStack>
-      {props.children}
-    </HStack>
-  );
-}
 
 export function SettingsPage() {
   const { state, reload } = useAppState();
@@ -44,6 +33,8 @@ export function SettingsPage() {
   if (!state) return <Loading />;
   const s = state.settings;
   const rateNum = Number(rate);
+  // 공개 주소: 비우거나, https:// 로 시작하는 실제 주소만
+  const baseError = !base.trim() ? null : isPublicHttpsUrl(base.trim()) ? null : "https:// 로 시작하는 주소를 넣어 주세요 (예: https://xxxx.trycloudflare.com)";
   const rateError = !rate.trim()
     ? "숫자를 넣어 주세요"
     : !Number.isInteger(rateNum) || rateNum < 1 || rateNum > 1000
@@ -65,24 +56,31 @@ export function SettingsPage() {
       <PageHeader title="설정" description="운영 일시 중지, 발송 한도, 연동 정보를 관리해요" />
       <VStack gap="x4">
         <Section title="운영" description="이벤트가 끝났거나 링크를 잠깐 바꿔야 할 때, 자동화를 하나씩 끄지 않고 여기서 한 번에 멈출 수 있어요">
-          <Row title="DM 자동 발송" description="끄면 댓글이 달려도 DM을 보내지 않아요. 즉시·예약 발송과 DM 공유·코드 답장이 모두 멈춰요. 이미 시작한 일괄 발송은 끝까지 보내요.">
-            <Switch
+          <List>
+            <ListSwitchItem
+              title="DM 자동 발송"
+              detail="끄면 댓글이 달려도 DM을 보내지 않아요. 즉시·예약 발송과 DM 공유·코드 답장이 모두 멈춰요. 이미 시작한 일괄 발송은 끝까지 보내요."
               checked={!s.dmPaused}
               onCheckedChange={(v) => patch({ dmPaused: !v }, v ? "DM 자동 발송을 다시 켰어요" : "DM 자동 발송을 멈췄어요")}
-              aria-label="DM 자동 발송"
+              suffix={<Switchmark />}
             />
-          </Row>
-          <Row title="댓글 자동 답글" description="답글만 따로 멈출 수 있어요. 멈춘 동안 달릴 예정이던 답글은 다시 켜도 달지 않아요. DM 발송을 멈추면 답글도 함께 멈춰요.">
-            <Switch
+            <ListDivider />
+            <ListSwitchItem
+              title="댓글 자동 답글"
+              detail={
+                s.dmPaused
+                  ? "DM 발송을 멈춘 동안에는 답글도 함께 멈춰요."
+                  : "답글만 따로 멈출 수 있어요. 멈춘 동안 달릴 예정이던 답글은 다시 켜도 달지 않아요."
+              }
               checked={!s.replyPaused && !s.dmPaused}
               disabled={s.dmPaused}
               onCheckedChange={(v) => patch({ replyPaused: !v }, v ? "댓글 자동 답글을 다시 켰어요" : "댓글 자동 답글을 멈췄어요")}
-              aria-label="댓글 자동 답글"
+              suffix={<Switchmark />}
             />
-          </Row>
+          </List>
           {(s.dmPaused || s.replyPaused) && (
             <HStack pt="x2">
-              <ActionButton variant="brandSolid" onClick={() => patch({ dmPaused: false, replyPaused: false }, "모두 다시 켰어요")}>
+              <ActionButton variant="neutralSolid" onClick={() => patch({ dmPaused: false, replyPaused: false }, "모두 다시 켰어요")}>
                 모두 다시 켜기
               </ActionButton>
             </HStack>
@@ -118,9 +116,19 @@ export function SettingsPage() {
           <VStack gap="x3">
             <HStack gap="x2" align="flex-end">
               <div style={{ flex: 1 }}>
-                <TextInput label="공개 주소" placeholder="https://xxxx.trycloudflare.com" value={base} onChange={setBase} />
+                <TextInput
+                  label="공개 주소"
+                  placeholder="https://xxxx.trycloudflare.com"
+                  value={base}
+                  onChange={setBase}
+                  error={baseError ?? undefined}
+                />
               </div>
-              <ActionButton variant="neutralWeak" disabled={base === s.publicBaseUrl} onClick={() => patch({ publicBaseUrl: base }, "공개 주소를 저장했어요")}>
+              <ActionButton
+                variant="neutralWeak"
+                disabled={base.trim() === s.publicBaseUrl || !!baseError}
+                onClick={() => patch({ publicBaseUrl: base.trim() }, base.trim() ? "공개 주소를 저장했어요" : "공개 주소를 지웠어요")}
+              >
                 저장
               </ActionButton>
             </HStack>
@@ -137,40 +145,32 @@ export function SettingsPage() {
         <AdminPasswordSection />
 
         <Section title="계정 · 도움말">
-          <VStack gap="x2">
-            <Row title="계정" description={`@${state.account.username} · ${state.account.mode === "demo" ? "데모" : "인스타그램 연동"} — 연동 상태 확인, 다시 연동, 해지`}>
-              <ActionButton size="small" variant="neutralWeak" onClick={() => nav("/connect")}>
-                관리
-              </ActionButton>
-            </Row>
-            {state.account.mode === "demo" && (
-              <Row title="시뮬레이터" description="팬이 되어 댓글·DM·버튼을 눌러 보며 자동화를 시험해요">
-                <ActionButton size="small" variant="neutralWeak" onClick={() => nav("/simulator")}>
-                  열기
-                </ActionButton>
-              </Row>
-            )}
-            <Row title="오토DM 둘러보기" description="주요 화면과 기능을 다섯 장으로 다시 봐요">
-              <ActionButton size="small" variant="neutralWeak" onClick={() => nav("/?tour=1")}>
-                열기
-              </ActionButton>
-            </Row>
-            <Row title="이용 가이드" description="연동부터 자동 DM 만들기·관리·추첨까지 시작 순서">
-              <ActionButton size="small" variant="neutralWeak" onClick={() => nav("/help?tab=guide")}>
-                열기
-              </ActionButton>
-            </Row>
-            <Row title="DM 발송 문제" description="DM이 전송되지 않을 때 확인할 것들">
-              <ActionButton size="small" variant="neutralWeak" onClick={() => nav("/help?tab=dm")}>
-                열기
-              </ActionButton>
-            </Row>
-            <Row title="연동 문제" description="연동이 안 되거나 다른 계정으로 연동됐을 때">
-              <ActionButton size="small" variant="neutralWeak" onClick={() => nav("/help?tab=connect")}>
-                열기
-              </ActionButton>
-            </Row>
-          </VStack>
+          <List>
+            {[
+              {
+                title: "계정",
+                detail: `@${state.account.username} · ${state.account.mode === "demo" ? "데모" : "인스타그램 연동"} — 연동 상태 확인, 다시 연동, 해지`,
+                to: "/connect",
+              },
+              ...(state.account.mode === "demo"
+                ? [{ title: "시뮬레이터", detail: "팬이 되어 댓글·DM·버튼을 눌러 보며 자동화를 시험해요", to: "/simulator" }]
+                : []),
+              { title: "오토DM 둘러보기", detail: "주요 화면과 기능을 한 장씩 다시 봐요", to: "/?tour=1" },
+              { title: "이용 가이드", detail: "연동부터 자동 DM 만들기·관리·추첨까지 시작 순서", to: "/help?tab=guide" },
+              { title: "DM 발송 문제", detail: "DM이 전송되지 않을 때 확인할 것들", to: "/help?tab=dm" },
+              { title: "연동 문제", detail: "연동이 안 되거나 다른 계정으로 연동됐을 때", to: "/help?tab=connect" },
+            ].map((r, i) => (
+              <Fragment key={r.to}>
+                {i > 0 && <ListDivider />}
+                <ListButtonItem
+                  title={r.title}
+                  detail={r.detail}
+                  suffix={<Icon svg={<IconChevronRightLine />} color="fg.neutralSubtle" />}
+                  onClick={() => nav(r.to)}
+                />
+              </Fragment>
+            ))}
+          </List>
         </Section>
       </VStack>
     </div>
@@ -194,12 +194,10 @@ function AdminPasswordSection() {
         </Text>
       ) : (
         <HStack gap="x2" wrap align="center">
-          <span className="code-chip" style={{ letterSpacing: 1, fontSize: 15, cursor: "default" }}>
-            {info.data?.password ? (show ? info.data.password : "••••••••••••") : "…"}
-          </span>
-          <ActionButton size="small" variant="neutralWeak" onClick={() => setShow(!show)}>
-            {show ? "숨기기" : "보기"}
-          </ActionButton>
+          <HStack gap="x1" align="center" className="secret-box">
+            <span className="mono">{info.data?.password ? (show ? info.data.password : "••••••••••••") : "…"}</span>
+            <IconBtn label={show ? "비밀번호 숨기기" : "비밀번호 보기"} icon={show ? <IconEyeSlashLine /> : <IconEyeLine />} onClick={() => setShow(!show)} />
+          </HStack>
           <ActionButton
             size="small"
             variant="neutralWeak"

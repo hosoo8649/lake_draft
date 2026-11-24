@@ -66,6 +66,18 @@ export function isValidUrl(url: string): boolean {
   }
 }
 
+/** 공개 주소(터널 주소): https:// 로 시작하고 경로 없는 실제 도메인 */
+export function isPublicHttpsUrl(url: string): boolean {
+  const v = url.trim().replace(/\/$/, "");
+  if (!/^https:\/\//i.test(v) || !isValidUrl(v)) return false;
+  try {
+    const u = new URL(v);
+    return (u.pathname === "/" || u.pathname === "") && !u.search && !u.hash;
+  } catch {
+    return false;
+  }
+}
+
 /** 버튼 링크 문제를 알기 쉽게 (비었는지, 주소 모양이 아닌지) */
 function buttonUrlError(url: string, p: string): string | null {
   if (!url.trim()) return `${p}버튼 링크를 설정해 주세요`;
@@ -213,6 +225,15 @@ const MODE_LABEL: Record<SendMode, string> = {
  * - 모든 댓글 자동화는 게시물마다 하나
  * - 같은 키워드를 두 자동화에 쓸 수 없음
  */
+/**
+ * 게시물마다 하나로 맞춰야 하는 발송 방식.
+ * 이미 보낸 예약 발송은 '보낸 뒤 새 댓글에도'를 켰으면 즉시 발송처럼, 껐으면 더 이상 제약이 없어요.
+ */
+export function effectiveMode(o: AutomationLike): SendMode | null {
+  if (o.sendMode === "scheduled" && o.schedule?.firedAt) return o.schedule.continueAfter ? "immediate" : null;
+  return o.sendMode;
+}
+
 export function findConflicts(candidate: AutomationLike, others: AutomationLike[]): string[] {
   const errs: string[] = [];
   const samePost = others.filter((o) => {
@@ -221,11 +242,11 @@ export function findConflicts(candidate: AutomationLike, others: AutomationLike[
     // 아직 연결되지 않은 다음 게시물 자동화끼리
     return candidate.nextPost && o.nextPost && !o.postId;
   });
+  const candidateMode = effectiveMode(candidate);
   for (const o of samePost) {
-    if (o.sendMode !== candidate.sendMode) {
-      errs.push(
-        `이 게시물에는 이미 ${MODE_LABEL[o.sendMode]} 자동화가 있어요. 발송 방식은 게시물마다 하나만 걸 수 있어요`,
-      );
+    const mode = effectiveMode(o);
+    if (mode && candidateMode && mode !== candidateMode) {
+      errs.push(`이 게시물에는 이미 ${MODE_LABEL[mode]} 자동화가 있어요. 발송 방식은 게시물마다 하나만 걸 수 있어요`);
       break;
     }
   }

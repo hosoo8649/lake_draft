@@ -1,8 +1,18 @@
 import { HStack, Text, VStack } from "@seed-design/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ActionButton } from "seed-design/ui/action-button";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "seed-design/ui/accordion";
-import { SegmentedControl, SegmentedControlItem } from "seed-design/ui/segmented-control";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "seed-design/ui/accordion";
+import {
+  TabsContent,
+  TabsList,
+  TabsRoot,
+  TabsTrigger,
+} from "seed-design/ui/tabs";
 import { PageHeader, Section } from "../components/ui";
 
 type Tab = "guide" | "dm" | "connect";
@@ -35,7 +45,9 @@ const DM_ITEMS: { title: string; body: string[] }[] = [
   },
   {
     title: "4. 다음 게시물 자동화가 엉뚱한 게시물에 연결됐어요",
-    body: ["다음 게시물 자동화는 새 게시물 중 가장 먼저 댓글이 달린 게시물에 연결돼요. 홈에서 지금 어느 게시물에 연결됐는지 확인해 주세요."],
+    body: [
+      "다음 게시물 자동화는 새 게시물 중 가장 먼저 댓글이 달린 게시물에 연결돼요. 홈에서 지금 어느 게시물에 연결됐는지 확인해 주세요.",
+    ],
   },
   {
     title: "5. ‘순차 발송중’이라고 떠요",
@@ -68,14 +80,18 @@ const DM_ITEMS: { title: string; body: string[] }[] = [
   },
   {
     title: "9. 그래도 안 되면 다시 연동해요",
-    body: ["연동·계정 › 다시 연동하기를 눌러 주세요. 같은 계정으로 다시 연동하면 자동화와 데이터는 그대로 유지돼요. ‘연동 해지’는 모든 자동화를 지우니 주의하세요."],
+    body: [
+      "연동·계정 › 다시 연동하기를 눌러 주세요. 같은 계정으로 다시 연동하면 자동화와 데이터는 그대로 유지돼요. ‘연동 해지’는 모든 자동화를 지우니 주의하세요.",
+    ],
   },
 ];
 
 const CONNECT_ITEMS: { title: string; body: string[] }[] = [
   {
     title: "개인 계정도 연동할 수 있나요?",
-    body: ["인스타그램 연동에는 프로페셔널(크리에이터·비즈니스) 계정이 필요해요. 인스타그램 설정에서 무료로 전환할 수 있어요."],
+    body: [
+      "인스타그램 연동에는 프로페셔널(크리에이터·비즈니스) 계정이 필요해요. 인스타그램 설정에서 무료로 전환할 수 있어요.",
+    ],
   },
   {
     title: "다른 계정으로 연동됐어요",
@@ -93,15 +109,21 @@ const CONNECT_ITEMS: { title: string; body: string[] }[] = [
   },
   {
     title: "연동 중에 code 400 오류가 떠요",
-    body: ["인스타그램 계정 센터 › 내 정보 및 권한 › ‘Meta 테크놀로지 외부의 활동’에서 향후 활동 연결을 해제했다가 다시 연결해 주세요."],
+    body: [
+      "인스타그램 계정 센터 › 내 정보 및 권한 › ‘Meta 테크놀로지 외부의 활동’에서 향후 활동 연결을 해제했다가 다시 연결해 주세요.",
+    ],
   },
   {
     title: "권한 화면에서 일부만 허용했어요",
-    body: ["프로필·미디어, 댓글, 메시지, 콘텐츠, 인사이트 권한을 모두 허용해야 자동 DM이 정상 동작해요. 다시 연동하기로 권한을 다시 받아 주세요."],
+    body: [
+      "프로필·미디어, 댓글, 메시지, 콘텐츠, 인사이트 권한을 모두 허용해야 자동 DM이 정상 동작해요. 다시 연동하기로 권한을 다시 받아 주세요.",
+    ],
   },
   {
     title: "로그인·웹훅 주소를 모르겠어요",
-    body: ["설정 › 공개 주소에 터널 주소를 넣으면 Meta 개발자 앱에 넣을 OAuth 리디렉션 주소와 웹훅 주소가 보여요. 자세한 순서는 README의 ‘실제 인스타그램 연동’을 참고해 주세요."],
+    body: [
+      "설정 › 공개 주소에 터널 주소를 넣으면 Meta 개발자 앱에 넣을 OAuth 리디렉션 주소와 웹훅 주소가 보여요. 자세한 순서는 README의 ‘실제 인스타그램 연동’을 참고해 주세요.",
+    ],
   },
 ];
 
@@ -114,7 +136,12 @@ function FaqList({ items }: { items: { title: string; body: string[] }[] }) {
           <AccordionContent>
             <VStack gap="x2" pb="x2">
               {it.body.map((b) => (
-                <Text key={b} as="p" textStyle="t4Regular" color="fg.neutralMuted">
+                <Text
+                  key={b}
+                  as="p"
+                  textStyle="t4Regular"
+                  color="fg.neutralMuted"
+                >
                   · {b}
                 </Text>
               ))}
@@ -127,11 +154,41 @@ function FaqList({ items }: { items: { title: string; body: string[] }[] }) {
 }
 
 const GUIDE_STEPS = [
-  { n: 1, title: "인스타그램 연동", body: "연동·계정에서 프로페셔널 계정을 연동해요. Meta 앱 없이도 데모로 모든 기능을 먼저 써 볼 수 있어요.", to: "/connect", cta: "연동·계정" },
-  { n: 2, title: "자동 DM 만들기", body: "홈 › 자동화 추가 → 게시물 → 템플릿 → 최종 확인(댓글 조건·DM·추가 기능) → 발송 시점(즉시·예약·일괄)을 골라 등록해요.", to: "/automations/new", cta: "자동화 추가" },
-  { n: 3, title: "템플릿으로 저장", body: "자주 쓰는 DM과 설정은 내 템플릿으로 저장해 두면 다음부터 고르기만 하면 돼요.", to: "/templates", cta: "내 템플릿" },
-  { n: 4, title: "결과 보고 관리하기", body: "홈에서 전송·읽음·클릭과 최근 7일 추이를 보고, 자동화 상세에서 최근 24시간 발송 상태와 실패 이유를 확인해요.", to: "/", cta: "홈" },
-  { n: 5, title: "댓글 추첨", body: "이벤트 게시물 댓글에서 당첨자를 무작위로 뽑고, 발표 글을 복사해 바로 올려요.", to: "/draws", cta: "댓글 추첨" },
+  {
+    n: 1,
+    title: "인스타그램 연동",
+    body: "연동·계정에서 프로페셔널 계정을 연동해요. Meta 앱 없이도 데모로 모든 기능을 먼저 써 볼 수 있어요.",
+    to: "/connect",
+    cta: "연동·계정",
+  },
+  {
+    n: 2,
+    title: "자동 DM 만들기",
+    body: "홈 › 자동화 추가 → 게시물 → 템플릿 → 최종 확인(댓글 조건·DM·추가 기능) → 발송 시점(즉시·예약·일괄)을 골라 등록해요.",
+    to: "/automations/new",
+    cta: "자동화 추가",
+  },
+  {
+    n: 3,
+    title: "템플릿으로 저장",
+    body: "자주 쓰는 DM과 설정은 내 템플릿으로 저장해 두면 다음부터 고르기만 하면 돼요.",
+    to: "/templates",
+    cta: "내 템플릿",
+  },
+  {
+    n: 4,
+    title: "결과 보고 관리하기",
+    body: "홈에서 전송·읽음·클릭과 최근 7일 추이를 보고, 자동화 상세에서 최근 24시간 발송 상태와 실패 이유를 확인해요.",
+    to: "/",
+    cta: "홈",
+  },
+  {
+    n: 5,
+    title: "댓글 추첨",
+    body: "이벤트 게시물 댓글에서 당첨자를 무작위로 뽑고, 발표 글을 복사해 바로 올려요.",
+    to: "/draws",
+    cta: "댓글 추첨",
+  },
 ];
 
 export function HelpPage() {
@@ -140,51 +197,80 @@ export function HelpPage() {
   const tab = (params.get("tab") as Tab) || "guide";
   return (
     <div className="page page--narrow">
-      <PageHeader title="도움말" description="이용 방법과 DM·연동 문제 해결 방법을 모았어요" />
-      <VStack gap="x4">
-        <SegmentedControl aria-label="도움말 종류" value={tab} onValueChange={(v) => setParams({ tab: v }, { replace: true })}>
-          <SegmentedControlItem value="guide">가이드</SegmentedControlItem>
-          <SegmentedControlItem value="dm">DM 발송</SegmentedControlItem>
-          <SegmentedControlItem value="connect">연동</SegmentedControlItem>
-        </SegmentedControl>
-        {tab === "guide" && (
-          <Section title="시작 순서">
-            <VStack gap="x3">
-              {GUIDE_STEPS.map((s) => (
-                <HStack key={s.n} gap="x3" align="flex-start" className="guide-box" wrap>
-                  <span className="step-num" data-active="true">
-                    {s.n}
-                  </span>
-                  <VStack gap="x1" grow style={{ flexBasis: 200 }}>
-                    <Text textStyle="t5Bold">{s.title}</Text>
-                    <Text textStyle="t3Regular" color="fg.neutralMuted">
-                      {s.body}
-                    </Text>
-                  </VStack>
-                  <ActionButton size="small" variant="neutralWeak" onClick={() => nav(s.to)}>
-                    {s.cta}
-                  </ActionButton>
-                </HStack>
-              ))}
-              <HStack>
-                <ActionButton variant="ghost" size="small" onClick={() => nav("/?tour=1")}>
-                  둘러보기 다시 보기 →
-                </ActionButton>
-              </HStack>
-            </VStack>
-          </Section>
-        )}
-        {tab === "dm" && (
-          <Section title="DM이 전송되지 않아요" description="원인은 다양해요. 아래 항목을 순서대로 확인해 보세요.">
-            <FaqList items={DM_ITEMS} />
-          </Section>
-        )}
-        {tab === "connect" && (
-          <Section title="연동이 정상적으로 되지 않아요">
-            <FaqList items={CONNECT_ITEMS} />
-          </Section>
-        )}
-      </VStack>
+      <PageHeader
+        title="도움말"
+        description="이용 방법과 DM·연동 문제 해결 방법을 모았어요"
+      />
+      {/* 내용 영역 전환은 Tabs (SEED: Segmented Control은 탐색에 쓰지 않아요) */}
+      <TabsRoot
+        value={tab}
+        onValueChange={(v) => setParams({ tab: v }, { replace: true })}
+        triggerLayout="fill"
+      >
+        <TabsList aria-label="도움말 종류">
+          <TabsTrigger value="guide">가이드</TabsTrigger>
+          <TabsTrigger value="dm">DM 발송</TabsTrigger>
+          <TabsTrigger value="connect">연동</TabsTrigger>
+        </TabsList>
+        <TabsContent value={tab}>
+          <VStack gap="x4" pt="x4">
+            {tab === "guide" && (
+              <Section title="시작 순서">
+                <VStack gap="x3">
+                  {GUIDE_STEPS.map((s) => (
+                    <HStack
+                      key={s.n}
+                      gap="x3"
+                      align="flex-start"
+                      className="guide-box"
+                      wrap
+                    >
+                      <span className="step-num" data-active="true">
+                        {s.n}
+                      </span>
+                      <VStack gap="x1" grow style={{ flexBasis: 200 }}>
+                        <Text textStyle="t5Bold">{s.title}</Text>
+                        <Text textStyle="t3Regular" color="fg.neutralMuted">
+                          {s.body}
+                        </Text>
+                      </VStack>
+                      <ActionButton
+                        size="small"
+                        variant="neutralWeak"
+                        onClick={() => nav(s.to)}
+                      >
+                        {s.cta}
+                      </ActionButton>
+                    </HStack>
+                  ))}
+                  <HStack>
+                    <ActionButton
+                      variant="ghost"
+                      size="small"
+                      onClick={() => nav("/?tour=1")}
+                    >
+                      둘러보기 다시 보기 →
+                    </ActionButton>
+                  </HStack>
+                </VStack>
+              </Section>
+            )}
+            {tab === "dm" && (
+              <Section
+                title="DM이 전송되지 않아요"
+                description="원인은 다양해요. 아래 항목을 순서대로 확인해 보세요."
+              >
+                <FaqList items={DM_ITEMS} />
+              </Section>
+            )}
+            {tab === "connect" && (
+              <Section title="연동이 정상적으로 되지 않아요">
+                <FaqList items={CONNECT_ITEMS} />
+              </Section>
+            )}
+          </VStack>
+        </TabsContent>
+      </TabsRoot>
     </div>
   );
 }

@@ -21,7 +21,7 @@ export type OutgoingMessage =
 
 export type SendResult =
   | { ok: true; messageId?: string }
-  | { ok: false; error: string; retryable: boolean; authError?: boolean };
+  | { ok: false; error: string; retryable: boolean; authError?: boolean; recipient?: boolean };
 
 export interface SendContext {
   deliveryId: string;
@@ -60,17 +60,18 @@ export function describeGraphError(e: {
   code?: number;
   error_subcode?: number;
   message?: string;
-}): { error: string; retryable: boolean; authError?: boolean } {
+}): { error: string; retryable: boolean; authError?: boolean; recipient?: boolean } {
   const code = e.code ?? 0;
   const sub = e.error_subcode ?? 0;
   if (code === 190 || code === 102) return { error: "인스타그램 연결이 만료됐어요. 다시 연동해 주세요", retryable: false, authError: true };
-  if (code === 10 && sub === 2534022) return { error: "답장 기한이 지났어요", retryable: false };
+  // recipient: 받는 사람 쪽 사정이라 크리에이터가 고칠 수 없는 실패 (자동화 상태 경고에서 빼요)
+  if (code === 10 && sub === 2534022) return { error: "답장 기한이 지났어요", retryable: false, recipient: true };
   if (code === 10) return { error: "메시지 권한이 없어요 (메시지 액세스 허용을 확인해 주세요)", retryable: false };
-  if (code === 551 || sub === 1545041) return { error: "수신자가 메시지를 받을 수 없는 상태예요", retryable: false };
+  if (code === 551 || sub === 1545041) return { error: "수신자가 메시지를 받을 수 없는 상태예요", retryable: false, recipient: true };
   if (code === 4 || code === 17 || code === 32 || code === 613 || sub === 2534025)
     return { error: "인스타그램에서 발송을 제한했어요 (잠시 후 다시 보내요)", retryable: true };
   if (code === 1 || code === 2) return { error: "인스타그램 일시 오류 (재시도 중)", retryable: true };
-  if (code === 100 && sub === 2018001) return { error: "수신자를 찾을 수 없어요", retryable: false };
+  if (code === 100 && sub === 2018001) return { error: "수신자를 찾을 수 없어요", retryable: false, recipient: true };
   if (code === 368) return { error: "계정이 일시적으로 제한됐어요", retryable: false };
   return { error: e.message ? `인스타그램 오류: ${e.message}` : "알 수 없는 오류", retryable: false };
 }

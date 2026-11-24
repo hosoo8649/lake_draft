@@ -281,6 +281,20 @@ export class Services {
     return a;
   }
 
+  /** 일괄 발송 멈추기 — 아직 안 보낸 댓글은 보내지 않고, 자동화는 꺼진 즉시 발송으로 남아요 */
+  stopBatch(id: string): Automation {
+    const a = this.getAutomation(id);
+    if (a.sendMode !== "batch" || !a.batch || a.batch.finishedAt) throw new HttpError(400, "보내는 중인 일괄 발송이 아니에요");
+    this.engine.cancelQueued(id);
+    const now = this.now();
+    a.batch = { ...a.batch, fetching: false, finishedAt: now, stopped: true };
+    a.sendMode = "immediate";
+    a.enabled = false;
+    a.updatedAt = now;
+    this.store.changed();
+    return a;
+  }
+
   deleteAutomation(id: string): void {
     const a = this.getAutomation(id);
     if (a.sendMode === "batch" && a.batch && !a.batch.finishedAt)
@@ -426,24 +440,28 @@ export class Services {
 
   /* ───────────── 댓글 추첨 ───────────── */
 
-  async draw(input: { postId: string; trigger: Trigger; winnerCount: number; redrawId?: string }): Promise<Draw> {
-    const errs = validateTrigger(input.trigger);
-    if (errs.length) throw bad(errs);
-    const post = this.db.posts.find((p) => p.id === input.postId);
-    if (!post) throw new HttpError(400, "게시물을 골라 주세요");
-    let comments = await this.gateway().fetchComments(input.postId, 0).catch(() => []);
-    if (!comments.length) comments = this.db.comments.filter((c) => c.postId === input.postId);
+  /** 추첨 후보: 조건에 맞는 댓글을 단 사람 (한 사람은 한 번만, 내 댓글·답글 제외) */
+  async drawCandidates(postId: string, trigger: Trigger): Promise<DrawWinner[]> {
+    let comments = await this.gateway().fetchComments(postId, 0).catch(() => []);
+    if (!comments.length) comments = this.db.comments.filter((c) => c.postId === postId);
     const acc = this.db.account;
     const byUser = new Map<string, DrawWinner>();
     for (const c of comments) {
       if (c.parentId) continue;
       if (acc && (c.userId === acc.igUserId || c.username === acc.username)) continue;
-      if (!keywordHit(input.trigger, c.text)) continue;
-      // 한 사람은 한 번만 (여러 번 댓글을 달아도 동일)
+      if (!keywordHit(trigger, c.text)) continue;
       if (!byUser.has(c.userId))
         byUser.set(c.userId, { userId: c.userId, username: c.username, commentId: c.id, commentText: c.text });
     }
-    const candidates = [...byUser.values()];
+    return [...byUser.values()];
+  }
+
+  async draw(input: { postId: string; trigger: Trigger; winnerCount: number; redrawId?: string }): Promise<Draw> {
+    const errs = validateTrigger(input.trigger);
+    if (errs.length) throw bad(errs);
+    const post = this.db.posts.find((p) => p.id === input.postId);
+    if (!post) throw new HttpError(400, "게시물을 골라 주세요");
+    const candidates = await this.drawCandidates(input.postId, input.trigger);
     if (!candidates.length) throw new HttpError(400, "조건에 맞는 댓글이 없어요");
     const n = Math.max(1, Math.min(input.winnerCount, candidates.length));
     // Fisher–Yates

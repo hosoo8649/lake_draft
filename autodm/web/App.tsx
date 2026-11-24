@@ -58,7 +58,13 @@ function MobileShell({ children }: { children: React.ReactNode }) {
       <Snackbar.AvoidOverlap>
         <nav className="tabbar" aria-label="주요 메뉴">
           {tabs.map((t) => (
-            <button key={t.path} type="button" data-current={t.match(pathname)} onClick={() => nav(t.path)}>
+            <button
+              key={t.path}
+              type="button"
+              data-current={t.match(pathname)}
+              aria-current={t.match(pathname) ? "page" : undefined}
+              onClick={() => nav(t.path)}
+            >
               <Icon svg={t.icon} />
               <span>{t.label}</span>
             </button>

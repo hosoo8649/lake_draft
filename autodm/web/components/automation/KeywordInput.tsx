@@ -1,6 +1,7 @@
 import { IconPlusLine, IconXmarkLine } from "@karrotmarket/react-monochrome-icon";
 import { HStack, Icon, Text, VStack } from "@seed-design/react";
 import { useState } from "react";
+import { ActionButton } from "seed-design/ui/action-button";
 import { Chip } from "seed-design/ui/chip";
 import { LIMITS } from "@shared/limits";
 import { keywordAddError, keywordKey, keywordsTotalChars, normalizeKeyword, splitKeywordInput } from "@shared/validation";
@@ -90,16 +91,17 @@ export function KeywordInput(props: {
           }}
           onBlur={() => draft.trim() && add(draft)}
         />
-        <button
-          type="button"
-          className="icon-btn"
+        <ActionButton
+          layout="iconOnly"
+          variant="ghost"
+          size="small"
           aria-label="키워드 추가"
           disabled={props.disabled || !draft.trim()}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => draft.trim() && add(draft)}
         >
           <Icon svg={<IconPlusLine />} />
-        </button>
+        </ActionButton>
       </div>
       <HStack justify="space-between">
         <Text textStyle="t2Regular" color={shownError ? "fg.critical" : "fg.neutralSubtle"}>

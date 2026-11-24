@@ -1,16 +1,19 @@
-import { HStack, Text, VStack } from "@seed-design/react";
+import { IconDot3VerticalLine } from "@karrotmarket/react-monochrome-icon";
+import { HStack, Icon, Text, VStack } from "@seed-design/react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ActionButton } from "seed-design/ui/action-button";
 import { Badge } from "seed-design/ui/badge";
 import { Callout } from "seed-design/ui/callout";
-import { Switch } from "seed-design/ui/switch";
+import { Switch, Switchmark } from "seed-design/ui/switch";
+import { List, ListDivider, ListItem, ListSwitchItem } from "seed-design/ui/list";
+import { MenuContent, MenuItem, MenuRoot, MenuTrigger } from "seed-design/ui/menu";
 import type { AutomationView, DeliveryLog } from "@shared/types";
 import { DMPreview } from "../components/dm/DMEditor";
 import { useConfirm, useErrorToast, useToast } from "../components/feedback";
 import { HealthText, Loading, PageHeader, PostThumb, Section, StatTile, StatusBadge } from "../components/ui";
 import { api, useApi } from "../lib/api";
 import { useAppState } from "../lib/appState";
-import { SEND_MODE_LABEL, TONE_LABEL, copyText, fanGuideText, fmtDateTime, fmtNumber, fmtRelative, josa, postTitle, triggerSummary } from "../lib/format";
+import { SEND_MODE_LABEL, TONE_LABEL, copyText, fanGuideText, fmtDateTime, fmtNumber, fmtRelative, fmtWhen, josa, postTitle, triggerSummary } from "../lib/format";
 import { FRIENDLY_REPLIES, POLITE_REPLIES } from "@shared/presets";
 import { useAutomationActions } from "./Home";
 
@@ -37,7 +40,7 @@ export function AutomationDetailPage() {
   const { id } = useParams();
   const nav = useNavigate();
   const { state } = useAppState();
-  const { data, error } = useApi<{ automation: AutomationView; recent: DeliveryLog[] }>(`/automations/${id}`);
+  const { data, error, reload } = useApi<{ automation: AutomationView; recent: DeliveryLog[] }>(`/automations/${id}`);
   const act = useAutomationActions();
   const toast = useToast();
   const onError = useErrorToast();
@@ -52,6 +55,22 @@ export function AutomationDetailPage() {
   if (!data || !state) return <Loading />;
   const a = data.automation;
   const sending = a.status === "sending";
+  const stopBatch = async () => {
+    const ok = await confirm({
+      title: "일괄 발송을 멈출까요?",
+      description: "아직 보내지 않은 댓글에는 보내지 않아요. 이미 보낸 DM은 그대로예요. 자동화는 꺼진 상태로 남아요.",
+      confirmLabel: "발송 중단",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api(`/automations/${a.id}/stop-batch`, { body: {} });
+      await reload();
+      toast("일괄 발송을 멈췄어요");
+    } catch (e) {
+      onError(e);
+    }
+  };
   const canDuplicate = a.sendMode !== "scheduled" && a.origin !== "scheduled";
 
   const setExtra = async (patch: Partial<AutomationView["extras"]>) => {
@@ -91,24 +110,34 @@ export function AutomationDetailPage() {
           </HStack>
         }
         actions={
+          // 버튼은 두 개까지 (SEED action-button: 세 개 이상 나란히 두지 않기) — 나머지는 더 보기 메뉴
           <>
-            <ActionButton variant="neutralWeak" disabled={sending} onClick={() => nav(`/automations/${a.id}/edit`)}>
+            <ActionButton variant="neutralSolid" disabled={sending} onClick={() => nav(`/automations/${a.id}/edit`)}>
               수정
             </ActionButton>
-            <ActionButton
-              variant="neutralWeak"
-              aria-disabled={!canDuplicate}
-              style={canDuplicate ? undefined : { opacity: 0.45 }}
-              onClick={() => (canDuplicate ? act.duplicate(a) : toast("예약 발송 자동화는 복제할 수 없어요. 새 자동화로 만들어 주세요"))}
-            >
-              복제
-            </ActionButton>
-            <ActionButton variant="neutralWeak" onClick={() => act.saveAsTemplate(a)}>
-              템플릿으로 저장
-            </ActionButton>
-            <ActionButton variant="ghost" color="fg.critical" disabled={sending} onClick={() => act.remove(a, () => nav("/"))}>
-              삭제
-            </ActionButton>
+            <MenuRoot>
+              <MenuTrigger asChild>
+                <ActionButton layout="iconOnly" variant="ghost" aria-label="더 보기">
+                  <Icon svg={<IconDot3VerticalLine />} />
+                </ActionButton>
+              </MenuTrigger>
+              <MenuContent>
+                <MenuItem
+                  label="복제"
+                  description={canDuplicate ? undefined : "예약 발송 자동화는 복제할 수 없어요"}
+                  disabled={!canDuplicate}
+                  onClick={() => act.duplicate(a)}
+                />
+                <MenuItem label="템플릿으로 저장" onClick={() => act.saveAsTemplate(a)} />
+                <MenuItem
+                  label="삭제"
+                  tone="critical"
+                  description={sending ? "일괄 발송 중에는 삭제할 수 없어요" : undefined}
+                  disabled={sending}
+                  onClick={() => act.remove(a, () => nav("/"))}
+                />
+              </MenuContent>
+            </MenuRoot>
           </>
         }
       />
@@ -139,7 +168,22 @@ export function AutomationDetailPage() {
                 <Callout tone="warning" description="설정에서 DM 발송을 일시 중지해 둬서 지금은 보내지 않아요. 일시 중지 중에는 스위치를 바꿀 수 없어요." />
               )}
               {sending && a.batch && (
-                <Callout tone="informative" description={`일괄 발송 중이에요 · ${a.batch.total}건 중 ${a.batch.total - a.stats.queued}건 처리했어요. 보내는 동안 수정·삭제할 수 없어요.`} />
+                <Callout
+                  tone="informative"
+                  title={a.batch.fetching ? "지난 댓글을 불러오는 중이에요" : `일괄 발송 중 · ${a.batch.total}건 중 ${a.batch.total - a.stats.queued}건 처리`}
+                  description={
+                    // 시간당 한도 때문에 기다리는 중이면 이유와 끝나는 때를 알려 줘요
+                    a.stats.queued > 0
+                      ? `시간당 ${state.settings.rateLimitPerHour}건까지 보내서 남은 ${a.stats.queued}건은 약 ${fmtWhen(
+                          Date.now() + Math.ceil(a.stats.queued / Math.max(1, state.settings.rateLimitPerHour)) * 3600_000,
+                        )}까지 보내요. 보내는 동안 수정·삭제할 수 없어요.`
+                      : "보내는 동안 수정·삭제할 수 없어요."
+                  }
+                  linkProps={{ children: "발송 중단", onClick: stopBatch }}
+                />
+              )}
+              {a.batch?.stopped && (
+                <Callout tone="neutral" description="일괄 발송을 중단했어요. 자동화는 꺼진 즉시 발송으로 남아 있어요. 켜면 이후 새 댓글에 보내요." />
               )}
               {a.stats.held > 0 && (
                 <Callout tone="informative" description={`예약 시각에 보낼 댓글 ${a.stats.held}개를 모아 뒀어요. 발송 시간·메시지·버튼 링크는 보내기 전까지 고칠 수 있어요.`} />
@@ -191,50 +235,62 @@ export function AutomationDetailPage() {
             </VStack>
           </Section>
 
-          <Section title="추가 기능" description="DM 공유·DM 코드는 여기서 바로 켜고 끌 수 있어요. 댓글 답글은 ‘수정’에서 바꿔요">
+          <Section
+            title="추가 기능"
+            description={
+              sending
+                ? "일괄 발송이 끝나면 바꿀 수 있어요"
+                : "DM 공유·DM 코드는 여기서 바로 켜고 끌 수 있어요. 댓글 답글은 ‘수정’에서 바꿔요"
+            }
+          >
             <VStack gap="x4">
-              <HStack justify="space-between" gap="x4" align="center">
-                <VStack gap="x0_5" style={{ minWidth: 0 }}>
-                  <HStack gap="x1_5" align="center">
-                    <Text textStyle="t5Bold">댓글에 답글 달기</Text>
-                    <Badge size="medium" variant="weak" tone={a.extras.commentReply.enabled && !state.settings.replyPaused ? "positive" : "neutral"}>
-                      {!a.extras.commentReply.enabled ? "꺼짐" : state.settings.replyPaused ? "설정에서 멈춤" : "켜짐"}
-                    </Badge>
-                  </HStack>
-                  <Text textStyle="t3Regular" color="fg.neutralMuted" maxLines={2}>
-                    {a.sendMode !== "immediate"
+              {/* 바로 적용되는 설정 — SEED List + Switch (줄 전체가 누르는 영역) */}
+              <List>
+                <ListItem
+                  title={
+                    <HStack as="span" gap="x1_5" align="center">
+                      댓글에 답글 달기
+                      <Badge size="medium" variant="weak" tone={a.extras.commentReply.enabled && !state.settings.replyPaused ? "positive" : "neutral"}>
+                        {!a.extras.commentReply.enabled ? "꺼짐" : state.settings.replyPaused ? "설정에서 멈춤" : "켜짐"}
+                      </Badge>
+                    </HStack>
+                  }
+                  detail={
+                    a.sendMode !== "immediate"
                       ? "예약·일괄 발송에서는 쓸 수 없어요"
                       : !a.extras.commentReply.enabled
                         ? "DM이 나간 뒤 그 댓글에 답글을 달 수 있어요"
                         : a.extras.commentReply.tone === "custom"
                           ? `내 답글 ${a.extras.commentReply.custom.length}개 · 예) ${a.extras.commentReply.custom[0] ?? ""}`
-                          : `${TONE_LABEL[a.extras.commentReply.tone]} · ${a.extras.commentReply.count}개 돌려 쓰기 · 예) ${(a.extras.commentReply.tone === "polite" ? POLITE_REPLIES : FRIENDLY_REPLIES)[0]}`}
-                  </Text>
-                </VStack>
-                {a.sendMode === "immediate" && (
-                  <ActionButton size="small" variant="neutralWeak" disabled={sending} onClick={() => nav(`/automations/${a.id}/edit`)}>
-                    바꾸기
-                  </ActionButton>
-                )}
-              </HStack>
-              <HStack justify="space-between" gap="x4">
-                <VStack gap="x0_5">
-                  <Text textStyle="t5Bold">DM 공유에도 답하기</Text>
-                  <Text textStyle="t3Regular" color="fg.neutralMuted">
-                    {a.postId ? "팬이 이 게시물을 ✈️ 공유로 내 계정에 보내면 같은 DM을 보내요" : "게시물에 연결된 뒤에 동작해요"}
-                  </Text>
-                </VStack>
-                <Switch checked={a.extras.shareReply} onCheckedChange={(v) => setExtra({ shareReply: v })} aria-label="DM 공유에도 답하기" />
-              </HStack>
-              <HStack justify="space-between" gap="x4">
-                <VStack gap="x0_5">
-                  <Text textStyle="t5Bold">DM 코드에도 답하기</Text>
-                  <Text textStyle="t3Regular" color="fg.neutralMuted">
-                    팬이 4자리 코드를 DM으로 보내면 같은 DM을 보내요
-                  </Text>
-                </VStack>
-                <Switch checked={a.extras.codeReply} onCheckedChange={(v) => setExtra({ codeReply: v })} aria-label="DM 코드에도 답하기" />
-              </HStack>
+                          : `${TONE_LABEL[a.extras.commentReply.tone]} · ${a.extras.commentReply.count}개 돌려 쓰기 · 예) ${(a.extras.commentReply.tone === "polite" ? POLITE_REPLIES : FRIENDLY_REPLIES)[0]}`
+                  }
+                  suffix={
+                    a.sendMode === "immediate" ? (
+                      <ActionButton size="small" variant="neutralWeak" disabled={sending} onClick={() => nav(`/automations/${a.id}/edit`)}>
+                        바꾸기
+                      </ActionButton>
+                    ) : undefined
+                  }
+                />
+                <ListDivider />
+                <ListSwitchItem
+                  title="DM 공유에도 답하기"
+                  detail={a.postId ? "팬이 이 게시물을 ✈️ 공유로 내 계정에 보내면 같은 DM을 보내요" : "게시물에 연결된 뒤에 동작해요"}
+                  checked={a.extras.shareReply}
+                  disabled={sending}
+                  onCheckedChange={(v) => setExtra({ shareReply: v })}
+                  suffix={<Switchmark />}
+                />
+                <ListDivider />
+                <ListSwitchItem
+                  title="DM 코드에도 답하기"
+                  detail="팬이 4자리 코드를 DM으로 보내면 같은 DM을 보내요"
+                  checked={a.extras.codeReply}
+                  disabled={sending}
+                  onCheckedChange={(v) => setExtra({ codeReply: v })}
+                  suffix={<Switchmark />}
+                />
+              </List>
               {a.extras.codeReply && (
                 <HStack gap="x3" align="center" wrap>
                   <button type="button" className="code-chip" aria-label={`코드 ${a.code} 복사`} onClick={async () => (await copyText(a.code)) && toast("코드를 복사했어요")}>

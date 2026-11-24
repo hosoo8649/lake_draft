@@ -32,6 +32,7 @@ export function Modal(props: {
     <ResponsiveDialogRoot
       open={props.open}
       onOpenChange={(o) => !o && props.onClose()}
+      dialogRootProps={{ size: props.wide ? "large" : "medium" }}
     >
       <ResponsiveDialogContent
         title={props.title || undefined}
@@ -41,19 +42,11 @@ export function Modal(props: {
             : "대화상자"
         }
         description={props.description}
-        className={props.wide ? "wide-dialog" : undefined}
+        // 아래에 '취소' 버튼이 있으면 위의 ✕는 숨겨요 (SEED dialog: 닫기 수단을 겹쳐 두지 않기)
+        showCloseButton={!props.primary}
       >
-        <ResponsiveDialogBody>
-          <div
-            style={{
-              maxHeight: props.wide ? "min(72vh, 760px)" : "min(64vh, 640px)",
-              overflowY: "auto",
-              padding: "2px 2px 8px",
-            }}
-          >
-            {props.children}
-          </div>
-        </ResponsiveDialogBody>
+        {/* 스크롤은 SEED Dialog/BottomSheet Body가 맡아요 */}
+        <ResponsiveDialogBody>{props.children}</ResponsiveDialogBody>
         {(props.primary || props.footer) && (
           <ResponsiveDialogFooter>
             {/* 알림이 창의 버튼을 가리지 않게 */}

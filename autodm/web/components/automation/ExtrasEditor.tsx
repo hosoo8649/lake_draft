@@ -11,7 +11,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ActionButton } from "seed-design/ui/action-button";
 import { Badge } from "seed-design/ui/badge";
 import { Chip } from "seed-design/ui/chip";
-import { Switch } from "seed-design/ui/switch";
+import { CheckSelectBox, CheckSelectBoxCheckmark, CheckSelectBoxGroup, RadioSelectBoxItem, RadioSelectBoxRadiomark, RadioSelectBoxRoot } from "seed-design/ui/select-box";
 import { LIMITS } from "@shared/limits";
 import { FRIENDLY_REPLIES, POLITE_REPLIES } from "@shared/presets";
 import type {
@@ -28,6 +28,10 @@ import { TextInput } from "../fields";
 import { Modal } from "../Modal";
 import { IconBtn } from "../ui";
 
+/**
+ * 추가 기능 한 개 — 등록·저장할 때 함께 적용되는 선택이라 SEED CheckSelectBox를 써요
+ * (Switch는 바로 적용될 때만 써요 — 자동화 상세·설정 화면)
+ */
 export function FeatureCard(props: {
   icon: ReactNode;
   title: string;
@@ -40,45 +44,36 @@ export function FeatureCard(props: {
   children?: ReactNode;
 }) {
   return (
-    <div className="feature-card">
-      <div className="feature-card__icon">{props.icon}</div>
-      <VStack gap="x3" grow style={{ minWidth: 0 }}>
-        <HStack justify="space-between" align="flex-start" gap="x3">
-          <VStack gap="x0_5">
-            <HStack gap="x1_5" align="center">
-              <Text
-                textStyle="t5Bold"
-                color={props.disabled ? "fg.disabled" : "fg.neutral"}
-              >
-                {props.title}
-              </Text>
-              {props.badge && (
-                <span className="no-shrink">
-                  <Badge size="medium" variant="outline" tone="brand">
-                    {props.badge}
-                  </Badge>
-                </span>
-              )}
-            </HStack>
-            <Text textStyle="t3Regular" color="fg.neutralMuted">
-              {props.description}
-            </Text>
-            {props.tags && (
-              <Text textStyle="t2Regular" color="fg.neutralSubtle">
-                {props.tags}
-              </Text>
-            )}
-          </VStack>
-          <Switch
-            checked={props.checked}
-            disabled={props.disabled || !props.onChange}
-            onCheckedChange={props.onChange}
-            aria-label={props.title}
-          />
+    <CheckSelectBox
+      checked={props.checked}
+      disabled={props.disabled || !props.onChange}
+      onCheckedChange={(v) => props.onChange?.(v === true)}
+      prefixIcon={props.icon}
+      label={
+        <HStack as="span" gap="x1_5" align="center" wrap>
+          {props.title}
+          {props.badge && (
+            <Badge size="medium" variant="weak" tone="informative">
+              {props.badge}
+            </Badge>
+          )}
         </HStack>
-        {props.children}
-      </VStack>
-    </div>
+      }
+      description={
+        props.tags ? (
+          <>
+            {props.description}
+            <Text as="span" textStyle="t2Regular" color="fg.neutralSubtle" style={{ display: "block", paddingTop: 2 }}>
+              {props.tags}
+            </Text>
+          </>
+        ) : (
+          props.description
+        )
+      }
+      suffix={<CheckSelectBoxCheckmark />}
+      footer={props.children}
+    />
   );
 }
 
@@ -136,25 +131,17 @@ function ReplyPickerModal(props: {
       }}
     >
       <VStack gap="x4">
-        {(["polite", "friendly", "custom"] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            className="option-card"
-            data-selected={v.tone === t}
-            onClick={() => setV({ ...v, tone: t })}
-          >
-            <VStack gap="x0_5" as="span" grow>
-              <Text textStyle="t5Bold">{TONE_LABEL[t]}</Text>
-              <Text textStyle="t3Regular" color="fg.neutralMuted">
-                {t === "custom"
-                  ? "답글을 직접 쓰거나 저장해 둔 답글 모음을 불러와요"
-                  : `예) ${sample(t)}`}
-              </Text>
-            </VStack>
-            <span className="option-card__radio" aria-hidden />
-          </button>
-        ))}
+        <RadioSelectBoxRoot aria-label="답글 말투" value={v.tone} onValueChange={(t) => setV({ ...v, tone: t as typeof v.tone })}>
+          {(["polite", "friendly", "custom"] as const).map((t) => (
+            <RadioSelectBoxItem
+              key={t}
+              value={t}
+              label={TONE_LABEL[t]}
+              description={t === "custom" ? "답글을 직접 쓰거나 저장해 둔 답글 모음을 불러와요" : `예) ${sample(t)}`}
+              suffix={<RadioSelectBoxRadiomark />}
+            />
+          ))}
+        </RadioSelectBoxRoot>
 
         {v.tone === "custom" && (
           <VStack gap="x3">
@@ -205,7 +192,8 @@ function ReplyPickerModal(props: {
                         // 창 위에 창을 또 띄우지 않고 그 자리에서 한 번 더 확인해요
                         <ActionButton
                           size="xsmall"
-                          variant="criticalSolid"
+                          variant="ghost"
+                          color="fg.critical"
                           onClick={async () => {
                             try {
                               await api(`/reply-sets/${s.id}`, {
@@ -353,102 +341,104 @@ export function ExtrasEditor(props: {
 
   return (
     <VStack gap="x3">
-      {props.gate && (
-        <FeatureCard
-          icon={<Icon svg={<IconPerson2Line />} />}
-          title="팔로워/비팔로워에게 다른 DM 보내기"
-          description="팔로우 여부에 따라 서로 다른 DM을 보내요"
-          tags={props.showTags ? "#팔로우유도 #팔로워전용혜택" : undefined}
-          checked={props.gate.checked}
-          onChange={props.gate.onChange}
-        />
-      )}
-      <FeatureCard
-        icon={<Icon svg={<IconDot3HorizontalChatbubbleLeftLine />} />}
-        title="댓글에 답글 달기"
-        description={
-          replyBlocked
-            ? "예약·일괄 발송에서는 댓글 답글을 쓸 수 없어요 (짧은 시간에 답글이 몰리면 인스타그램이 제한할 수 있어요)"
-            : "DM이 나간 뒤 그 댓글에 답글을 달아요. 몰리지 않게 하나씩 간격을 두고 달고, DM을 못 보낸 댓글에는 달지 않아요"
-        }
-        tags={props.showTags ? "#DM확인안내 #댓글반응늘리기" : undefined}
-        checked={r.enabled && !replyBlocked}
-        disabled={!!replyBlocked}
-        onChange={ro ? undefined : (v) => setReply({ enabled: v })}
-      >
-        {r.enabled && !replyBlocked && (
-          <VStack gap="x2">
-            {r.tone !== "custom" && (
-              <VStack gap="x1">
-                <Text textStyle="t3Medium" color="fg.neutralMuted">
-                  돌려 쓸 기본 답글 수 — 많을수록 같은 답글이 덜 반복돼요
-                </Text>
-                <Chip.RadioRoot
-                  value={String(r.count)}
-                  onValueChange={(v: string) =>
-                    setReply({ count: Number(v) as 10 | 20 | 30 })
-                  }
-                  aria-label="돌려 쓸 답글 수"
-                >
-                  <HStack gap="x2">
-                    {[10, 20, 30].map((n) => (
-                      <Chip.RadioItem
-                        key={n}
-                        value={String(n)}
-                        size="medium"
-                        variant="outlineStrong"
-                        disabled={ro}
-                      >
-                        <Chip.Label>{n}개</Chip.Label>
-                      </Chip.RadioItem>
-                    ))}
-                  </HStack>
-                </Chip.RadioRoot>
-              </VStack>
-            )}
-            <button
-              type="button"
-              className="tone-row"
-              onClick={() => !ro && setPickerOpen(true)}
-              disabled={ro}
-            >
-              <Text
-                textStyle="t3Bold"
-                color="fg.neutralMuted"
-                style={{ flexShrink: 0 }}
-              >
-                {TONE_LABEL[r.tone]}
-              </Text>
-              <Text textStyle="t4Regular" maxLines={1} style={{ flex: 1 }}>
-                {toneSample}
-              </Text>
-              <Icon svg={<IconChevronRightLine />} />
-            </button>
-            {r.tone === "custom" &&
-              r.custom.length < LIMITS.customRepliesMin && (
-                <Text textStyle="t2Regular" color="fg.critical">
-                  내 답글은 {LIMITS.customRepliesMin}개 이상 넣어 주세요
-                </Text>
-              )}
-          </VStack>
+      <CheckSelectBoxGroup aria-label="추가 기능">
+        {props.gate && (
+          <FeatureCard
+            icon={<IconPerson2Line />}
+            title="팔로워/비팔로워에게 다른 DM 보내기"
+            description="팔로우 여부에 따라 서로 다른 DM을 보내요"
+            tags={props.showTags ? "#팔로우유도 #팔로워전용혜택" : undefined}
+            checked={props.gate.checked}
+            onChange={props.gate.onChange}
+          />
         )}
-      </FeatureCard>
-      <FeatureCard
-        icon={<Icon svg={<IconPaperplaneLine />} />}
-        title="DM 공유에도 답하기"
-        badge="NEW"
-        description="이 게시물을 내 계정에 DM으로 공유한 팬에게 자동 DM을 보내요. 댓글을 남기지 않는 팬에게도 닿아요"
-        checked={e.shareReply}
-        onChange={ro ? undefined : (v) => set({ shareReply: v })}
-      />
-      <FeatureCard
-        icon={<Icon svg={<IconKeyholeShieldLine />} />}
-        title="DM 코드에도 답하기"
-        badge="NEW"
-        description="DM으로 코드를 보낸 팬에게 자동 DM을 보내요. 스토리·라이브처럼 댓글을 받기 어려운 곳에서 쓰기 좋아요"
-        checked={e.codeReply}
-        onChange={ro ? undefined : (v) => set({ codeReply: v })}
-      />
+        <FeatureCard
+          icon={<IconDot3HorizontalChatbubbleLeftLine />}
+          title="댓글에 답글 달기"
+          description={
+            replyBlocked
+              ? "예약·일괄 발송에서는 댓글 답글을 쓸 수 없어요 (짧은 시간에 답글이 몰리면 인스타그램이 제한할 수 있어요)"
+              : "DM이 나간 뒤 그 댓글에 답글을 달아요. 몰리지 않게 하나씩 간격을 두고 달고, DM을 못 보낸 댓글에는 달지 않아요"
+          }
+          tags={props.showTags ? "#DM확인안내 #댓글반응늘리기" : undefined}
+          checked={r.enabled && !replyBlocked}
+          disabled={!!replyBlocked}
+          onChange={ro ? undefined : (v) => setReply({ enabled: v })}
+        >
+          {r.enabled && !replyBlocked && (
+            <VStack gap="x2">
+              {r.tone !== "custom" && (
+                <VStack gap="x1">
+                  <Text textStyle="t3Medium" color="fg.neutralMuted">
+                    돌려 쓸 기본 답글 수 — 많을수록 같은 답글이 덜 반복돼요
+                  </Text>
+                  <Chip.RadioRoot
+                    value={String(r.count)}
+                    onValueChange={(v: string) =>
+                      setReply({ count: Number(v) as 10 | 20 | 30 })
+                    }
+                    aria-label="돌려 쓸 답글 수"
+                  >
+                    <HStack gap="x2">
+                      {[10, 20, 30].map((n) => (
+                        <Chip.RadioItem
+                          key={n}
+                          value={String(n)}
+                          size="medium"
+                          variant="outlineStrong"
+                          disabled={ro}
+                        >
+                          <Chip.Label>{n}개</Chip.Label>
+                        </Chip.RadioItem>
+                      ))}
+                    </HStack>
+                  </Chip.RadioRoot>
+                </VStack>
+              )}
+              <button
+                type="button"
+                className="tone-row"
+                onClick={() => !ro && setPickerOpen(true)}
+                disabled={ro}
+              >
+                <Text
+                  textStyle="t3Bold"
+                  color="fg.neutralMuted"
+                  style={{ flexShrink: 0 }}
+                >
+                  {TONE_LABEL[r.tone]}
+                </Text>
+                <Text textStyle="t4Regular" maxLines={1} style={{ flex: 1 }}>
+                  {toneSample}
+                </Text>
+                <Icon svg={<IconChevronRightLine />} />
+              </button>
+              {r.tone === "custom" &&
+                r.custom.length < LIMITS.customRepliesMin && (
+                  <Text textStyle="t2Regular" color="fg.critical">
+                    내 답글은 {LIMITS.customRepliesMin}개 이상 넣어 주세요
+                  </Text>
+                )}
+            </VStack>
+          )}
+        </FeatureCard>
+        <FeatureCard
+          icon={<IconPaperplaneLine />}
+          title="DM 공유에도 답하기"
+          badge="NEW"
+          description="이 게시물을 내 계정에 DM으로 공유한 팬에게 자동 DM을 보내요. 댓글을 남기지 않는 팬에게도 닿아요"
+          checked={e.shareReply}
+          onChange={ro ? undefined : (v) => set({ shareReply: v })}
+        />
+        <FeatureCard
+          icon={<IconKeyholeShieldLine />}
+          title="DM 코드에도 답하기"
+          badge="NEW"
+          description="DM으로 코드를 보낸 팬에게 자동 DM을 보내요. 스토리·라이브처럼 댓글을 받기 어려운 곳에서 쓰기 좋아요"
+          checked={e.codeReply}
+          onChange={ro ? undefined : (v) => set({ codeReply: v })}
+        />
+      </CheckSelectBoxGroup>
       {guide && props.code !== undefined && (
         <div className="guide-box">
           <HStack justify="space-between" pb="x1">

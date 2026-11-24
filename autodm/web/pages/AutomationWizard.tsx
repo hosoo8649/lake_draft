@@ -1,15 +1,15 @@
 import { IconCheckmarkFatFill, IconChevronDownLine } from "@karrotmarket/react-monochrome-icon";
-import { HStack, Icon, Text, VStack } from "@seed-design/react";
+import { Box, HStack, Icon, Text, VStack } from "@seed-design/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ActionButton } from "seed-design/ui/action-button";
-import { Callout } from "seed-design/ui/callout";
-import { PageBanner, PageBannerButton } from "seed-design/ui/page-banner";
+import { ActionableCallout, Callout } from "seed-design/ui/callout";
+import { ResultSection } from "seed-design/ui/result-section";
 import { ProgressCircle } from "seed-design/ui/progress-circle";
 import { cloneDeep, defaultDM, defaultExtras, emptyButton, reissueIds, textMessage } from "@shared/factory";
 import { GENERIC_KEYWORD_IDEAS } from "@shared/presets";
 import type { AutomationView, DMContent, Extras, LinkItem, SendMode, Template, Trigger } from "@shared/types";
-import { keywordKey, validateDM, validateExtras, validateTrigger } from "@shared/validation";
+import { effectiveMode, keywordKey, validateDM, validateExtras, validateTrigger } from "@shared/validation";
 import { ExtrasEditor } from "../components/automation/ExtrasEditor";
 import { KeywordInput } from "../components/automation/KeywordInput";
 import { PostGrid, PostPicker, TemplateList, TemplatePreviewCard, type PostWithMeta } from "../components/automation/Pickers";
@@ -19,6 +19,8 @@ import { useConfirm, useErrorToast, useToast, useDismissToast } from "../compone
 import { TextInput } from "../components/fields";
 import { Modal } from "../components/Modal";
 import { Loading, PageHeader, PostThumb, FooterBar } from "../components/ui";
+import { RadioSelectBoxItem, RadioSelectBoxRadiomark, RadioSelectBoxRoot } from "seed-design/ui/select-box";
+import { IconDot3HorizontalChatbubbleLeftLine, IconMagnifyingglassLine } from "@karrotmarket/react-monochrome-icon";
 import { ApiError, api, useApi } from "../lib/api";
 import { useAppState } from "../lib/appState";
 import { SEND_MODE_LABEL, fmtDateTime, josa, postTitle, triggerSummary } from "../lib/format";
@@ -41,6 +43,25 @@ type Step = "post" | "template" | "final";
 type Sec = "trigger" | "dm" | "extras";
 const SECS: Sec[] = ["trigger", "dm", "extras"];
 const DRAFT_KEY = "autodm:wizard-draft";
+
+/** 이 탭에 저장해 둔 만들던 자동화 (30분 안에 저장한 것만) */
+function readDraft(): {
+  draft: Draft;
+  code?: string;
+  open?: Record<Sec, boolean>;
+  done?: Record<Sec, boolean>;
+  fromLink?: boolean;
+} | null {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    if (!v?.draft || (v.at && Date.now() - v.at > 30 * 60_000)) return null;
+    return v;
+  } catch {
+    return null;
+  }
+}
 
 function newDraft(): Draft {
   return {
@@ -94,6 +115,7 @@ function triggerLine(t: Trigger): string {
 
 /** 최종 확인의 각 단계 — 확인을 마치면 한 줄 요약으로 접혀요 */
 function SectionBlock(props: {
+  id: string;
   title: string;
   label: string;
   summary: string;
@@ -102,11 +124,15 @@ function SectionBlock(props: {
   onOpen: () => void;
   children: React.ReactNode;
   icon: string;
+  /** 이 단계에서 해야 할 일 안내 (등록을 눌렀는데 아직 확인하지 않았을 때) */
+  nudge?: string | null;
+  /** 이 단계의 오류 — 알림(토스트) 대신 그 자리에 계속 보여요 */
+  errors?: string[];
 }) {
   if (!props.open)
     return (
-      <button type="button" className="summary-card" onClick={props.onOpen} aria-label={`${props.title} 다시 열기`}>
-        <span className="option-card__icon" style={{ fontSize: 18 }}>
+      <button type="button" id={props.id} className="summary-card" onClick={props.onOpen} aria-label={`${props.title} 다시 열기`}>
+        <span className="list-icon" style={{ fontSize: "var(--seed-font-size-t6)" }}>
           {props.done ? <Icon svg={<IconCheckmarkFatFill />} color="fg.positive" /> : props.icon}
         </span>
         <VStack gap="x0_5" grow style={{ minWidth: 0 }}>
@@ -121,10 +147,20 @@ function SectionBlock(props: {
       </button>
     );
   return (
-    <section className="card">
+    <section className="card" id={props.id} style={{ scrollMarginTop: 16 }}>
       <Text as="h2" textStyle="t7Bold" style={{ marginBottom: 16 }}>
         {props.title}
       </Text>
+      {props.nudge && (
+        <Box pb="x4">
+          <Callout tone="informative" description={props.nudge} />
+        </Box>
+      )}
+      {props.errors && props.errors.length > 0 && (
+        <Box pb="x4">
+          <Callout tone="critical" description={props.errors.join(" · ")} />
+        </Box>
+      )}
       {props.children}
     </section>
   );
@@ -148,7 +184,26 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
   const linkId = params.get("link");
 
   const [draft, setDraft] = useState<Draft>(newDraft);
-  const [step, setStep] = useState<Step>("post");
+  // 만들기 단계는 주소(?step=)에도 남겨요 → 뒤로 가기는 이전 단계로, 새로고침해도 이어서
+  const urlStep = mode === "create" ? ((params.get("step") as Step | null) ?? "post") : null;
+  const [step, setStepState] = useState<Step>(urlStep ?? "post");
+  const setStep = (s: Step) => {
+    setStepState(s);
+    if (mode !== "create") return;
+    setParams(
+      (p) => {
+        const n = new URLSearchParams(p);
+        n.set("step", s);
+        n.delete("selectTemplate");
+        n.delete("template");
+        return n;
+      },
+      { replace: false },
+    );
+  };
+  useEffect(() => {
+    if (urlStep && urlStep !== step) setStepState(urlStep);
+  }, [urlStep]);
   const dismissToast = useDismissToast();
   const previewRef = useRef<HTMLDivElement>(null);
   // 단계를 넘기면 이전 단계의 알림은 닫아요
@@ -157,6 +212,12 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
   const [done, setDone] = useState<Record<Sec, boolean>>({ trigger: false, dm: false, extras: false });
   const [touched, setTouched] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
+  /** 등록을 눌렀는데 아직 확인하지 않은 단계 */
+  const [nudge, setNudge] = useState<Sec | null>(null);
+  /** 게시물을 고르지 않고 다음을 눌렀을 때 */
+  const [postError, setPostError] = useState(false);
+  const scrollToSection = (s: Sec) =>
+    requestAnimationFrame(() => document.getElementById(`sec-${s}`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
   const [sendOpen, setSendOpen] = useState(false);
   const [postOpen, setPostOpen] = useState(false);
   const [phase, setPhase] = useState<"idle" | "saving" | "done">("idle");
@@ -171,6 +232,12 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
     setTouched(true);
     setDraft((d) => ({ ...d, ...patch }));
   };
+
+  // 만드는 중인 내용은 이 탭에 계속 저장해 둬요 (새로고침·템플릿 편집 다녀오기에도 이어서)
+  useEffect(() => {
+    if (mode !== "create" || !touched || phase !== "idle") return;
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ draft, code, open, done, fromLink: fromLink.current, at: Date.now() }));
+  }, [mode, touched, phase, draft, code, open, done]);
 
   const original = editing.data?.automation;
   const changes = original ? countChanges(original, draft) : 0;
@@ -213,6 +280,22 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
       setDone({ trigger: true, dm: true, extras: true });
       return;
     }
+    // 새로고침·뒤로 가기·템플릿 편집에서 돌아왔을 때 만들던 내용을 이어서
+    const saved = readDraft();
+    const back = params.get("selectTemplate");
+    if (saved && (params.get("step") || back || params.get("restore"))) {
+      initialized.current = true;
+      setDraft(saved.draft);
+      if (saved.code) setCode(saved.code);
+      if (saved.open) setOpen(saved.open);
+      if (saved.done) setDone(saved.done);
+      fromLink.current = !!saved.fromLink;
+      setTouched(true);
+      if (back) setStepState("template");
+      void templates.reload();
+      return;
+    }
+    if (!params.get("step")) sessionStorage.removeItem(DRAFT_KEY);
     if (dupId) {
       const a = dup.data?.automation;
       if (!a) return;
@@ -229,18 +312,6 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
       return;
     }
     initialized.current = true;
-    const back = params.get("selectTemplate");
-    const saved = sessionStorage.getItem(DRAFT_KEY);
-    if (back && saved) {
-      const parsed = JSON.parse(saved) as { draft: Draft; code: string };
-      setDraft(parsed.draft);
-      if (parsed.code) setCode(parsed.code);
-      setTouched(true);
-      setStep("template");
-      sessionStorage.removeItem(DRAFT_KEY);
-      void templates.reload();
-      return;
-    }
     const pid = params.get("postId");
     if (pid) {
       setDraft((d) => ({ ...d, postId: pid, nextPost: false }));
@@ -260,9 +331,12 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
     if (!tid) return;
     const t = [...templates.data.mine, ...templates.data.builtin].find((x) => x.id === tid);
     if (!t) return;
-    applyTemplate(t);
+    // 다른 템플릿을 고치고 돌아왔다면 원래 고른 템플릿을 그대로 둬요 (고른 템플릿을 고쳤을 때만 다시 적용)
+    const edited = params.get("edited") === "1";
+    if (!edited || readDraft()?.draft.templateId === tid) applyTemplate(t);
     params.delete("template");
     params.delete("selectTemplate");
+    params.delete("edited");
     setParams(params, { replace: true });
   }, [templates.data]);
 
@@ -277,8 +351,12 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
   );
   const usedOnPost = siblings.flatMap((a) => (a.trigger.type === "keyword" ? a.trigger.keywords : []));
   const allTaken = siblings.some((a) => a.trigger.type === "all");
-  const siblingMode = siblings[0]?.sendMode;
+  const siblingMode = siblings.map(effectiveMode).find((m): m is SendMode => !!m);
   const pendingNext = (home.data?.automations ?? []).some((a) => a.id !== id && a.nextPost && !a.postId);
+  // 이 게시물에 이미 모든 댓글 자동화가 있으면 처음부터 키워드 댓글로 골라 둬요
+  useEffect(() => {
+    if (mode === "create" && allTaken && draft.trigger.type === "all") setDraft((d) => ({ ...d, trigger: { type: "keyword", keywords: [] } }));
+  }, [mode, allTaken, draft.trigger.type]);
 
   const selectedTemplate = useMemo(() => {
     const all = [...(templates.data?.mine ?? []), ...(templates.data?.builtin ?? [])];
@@ -293,7 +371,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
     ...(draft.trigger.type === "keyword"
       ? draft.trigger.keywords.filter((k) => takenKeys.has(keywordKey(k))).map((k) => `이미 이 게시물에 걸린 키워드예요: ${k}`)
       : allTaken
-        ? ["이 게시물에는 이미 모든 댓글 자동화가 있어요"]
+        ? ["이 게시물에는 이미 모든 댓글 자동화가 있어요. 키워드 댓글로 바꾸거나 다른 게시물을 골라 주세요"]
         : []),
   ];
   // 기본 템플릿의 예시 날짜(00월 00일)를 그대로 보내지 않게
@@ -306,12 +384,14 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
   const confirmSection = (s: Sec) => {
     const errs = s === "trigger" ? triggerErrors : s === "dm" ? dmErrors : extrasErrors;
     if (errs.length) {
+      // 오류는 토스트 대신 그 단계 안에 계속 보여 주고, 그 자리로 이동해요
       setShowErrors(true);
-      toast(errs[0], "critical");
+      scrollToSection(s);
       return;
     }
     const next = SECS[SECS.indexOf(s) + 1];
-    dismissToast(); // 고친 뒤에는 남아 있던 오류 알림을 닫아요
+    if (nudge === s) setNudge(null);
+    dismissToast();
     setDone((d) => ({ ...d, [s]: true }));
     setOpen((o) => ({ ...o, [s]: false, ...(next && !done[next] ? { [next]: true } : {}) }));
     setShowErrors(false);
@@ -350,18 +430,10 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
     setServerErrors([]);
     setPhase("saving");
     try {
-      const [a] = await Promise.all([
-        api<AutomationView>("/automations", { method: "POST", body: body(sendMode) }),
-        new Promise((r) => setTimeout(r, 700)),
-      ]);
-      setPhase("done");
+      const a = await api<AutomationView>("/automations", { method: "POST", body: body(sendMode) });
       setCreatedId(a.id);
-      // 템플릿이 하나도 없으면 등록 완료 화면에서 템플릿으로 만들지 물어봐요
-      if ((templates.data?.mine.length ?? 0) > 0) {
-        await new Promise((r) => setTimeout(r, 900));
-        allowLeave();
-        nav("/");
-      }
+      setPhase("done");
+      sessionStorage.removeItem(DRAFT_KEY);
     } catch (e) {
       setPhase("idle");
       if (e instanceof ApiError) setServerErrors(e.details);
@@ -416,10 +488,17 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
 
   const nextFromPost = () => {
     if (!draft.nextPost && !draft.postId) {
-      toast("자동화를 걸 게시물을 골라 주세요", "critical");
+      setPostError(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
-    if (post?.restricted) toast("연령 제한 등 제한된 게시물은 댓글 DM이 동작하지 않아요. DM 공유·DM 코드를 함께 켜 두세요.");
+    if (skipTemplate) {
+      // 복제·내 링크에서 시작하면 내용이 이미 채워져 있어요 → 확인을 마친 상태로 열고, 문제 있는 단계만 펼쳐요
+      const bad: Sec | null = triggerErrors.length ? "trigger" : dmErrors.length ? "dm" : extrasErrors.length ? "extras" : null;
+      setDone({ trigger: bad !== "trigger", dm: bad !== "dm", extras: bad !== "extras" });
+      setOpen({ trigger: bad === "trigger", dm: bad === "dm", extras: bad === "extras" });
+      if (bad) setShowErrors(true);
+    }
     setStep(skipTemplate ? "final" : "template");
     window.scrollTo({ top: 0 });
   };
@@ -431,19 +510,29 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
     nav("/");
   };
 
-  const openSendSheet = () => {
+  /** 등록 전 확인 — 문제가 있는 단계를 펼치고 그 자리로 이동해요 (두 등록 버튼 모두 같은 확인) */
+  const readyToRegister = (): boolean => {
     if (!SECS.every((s) => done[s]) && !fromLink.current) {
       const first = SECS.find((s) => !done[s])!;
       setOpen((o) => ({ ...o, [first]: true }));
-      toast("아직 확인하지 않은 단계가 있어요", "critical");
-      return;
+      setNudge(first);
+      scrollToSection(first);
+      return false;
     }
     const errs = [...triggerErrors, ...dmErrors, ...extrasErrors];
     if (errs.length) {
       setShowErrors(true);
-      toast(errs[0], "critical");
-      return;
+      const first: Sec = triggerErrors.length ? "trigger" : dmErrors.length ? "dm" : "extras";
+      setOpen((o) => ({ ...o, [first]: true }));
+      setDone((d) => ({ ...d, [first]: false }));
+      scrollToSection(first);
+      return false;
     }
+    return true;
+  };
+
+  const openSendSheet = () => {
+    if (!readyToRegister()) return;
     const patch: Partial<Draft> = {};
     if (siblingMode && draft.sendMode !== siblingMode) patch.sendMode = siblingMode;
     if (draft.scheduleAt < Date.now() + 60_000) patch.scheduleAt = defaultScheduleAt();
@@ -458,7 +547,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
         ? {
             title: dupId ? "복제한 자동화를 어느 게시물에 걸까요?" : "어떤 게시물의 댓글에 반응할까요?",
             desc: dupId
-              ? `‘${dup.data?.automation.title || (dup.data ? triggerSummary(dup.data.automation.trigger) : "")}’ 자동화의 조건·DM·추가 기능을 그대로 가져와요. 같은 게시물이면 키워드는 바꿔 주세요`
+              ? `${dup.data?.automation.title ? `‘${dup.data.automation.title}’` : dup.data ? triggerSummary(dup.data.automation.trigger) : ""} 자동화의 조건·DM·추가 기능을 그대로 가져와요. 같은 게시물이면 키워드는 바꿔 주세요`
               : "캐러셀·릴스도 고를 수 있어요",
           }
         : step === "template"
@@ -468,6 +557,10 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
   /* ───── 최종 확인 세 단계 ───── */
   const triggerSection = (
     <SectionBlock
+      id="sec-trigger"
+      nudge={nudge === "trigger" ? "이 단계를 확인하고 ‘다음’을 눌러 주세요" : null}
+      // 키워드 칸이 직접 보여 주는 오류(빈 키워드·겹치는 키워드)는 빼고 보여요
+      errors={showErrors ? triggerErrors.filter((e) => !e.startsWith("키워드를 넣어") && !e.startsWith("이미 이 게시물에 걸린 키워드")) : undefined}
       title="어떤 댓글에 보낼까요?"
       label="보낼 댓글"
       icon="💬"
@@ -478,36 +571,35 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
     >
       <VStack gap="x4">
         {scheduledLocked && <Callout tone="neutral" description="예약 발송은 키워드 조건을 바꿀 수 없어요." />}
-        <VStack gap="x2" role="radiogroup" aria-label="보낼 댓글">
+        <RadioSelectBoxRoot
+          aria-label="보낼 댓글"
+          value={draft.trigger.type}
+          onValueChange={(v) => {
+            const t = v as "all" | "keyword";
+            set({ trigger: { type: t, keywords: t === "all" ? [] : draft.trigger.keywords } });
+          }}
+        >
           {(["all", "keyword"] as const).map((t) => {
             const disabled = scheduledLocked || (t === "all" && allTaken && draft.trigger.type !== "all");
             return (
-              <button
+              <RadioSelectBoxItem
                 key={t}
-                type="button"
-                role="radio"
-                aria-checked={draft.trigger.type === t}
-                className="option-card"
-                data-selected={draft.trigger.type === t}
+                value={t}
                 disabled={disabled}
-                onClick={() => set({ trigger: { type: t, keywords: t === "all" ? [] : draft.trigger.keywords } })}
-              >
-                <span className="option-card__icon">{t === "all" ? "💬" : "🔍"}</span>
-                <VStack gap="x0_5" as="span" grow>
-                  <Text textStyle="t5Bold">{t === "all" ? "모든 댓글" : "키워드 댓글"}</Text>
-                  <Text textStyle="t3Regular" color="fg.neutralMuted">
-                    {t === "all"
-                      ? disabled && !scheduledLocked
-                        ? "이 게시물에는 이미 모든 댓글 자동화가 있어요 (게시물마다 하나)"
-                        : "댓글을 남긴 모든 분께 DM을 보내요"
-                      : "지정한 키워드가 포함된 댓글에만 DM을 보내요"}
-                  </Text>
-                </VStack>
-                <span className="option-card__radio" aria-hidden />
-              </button>
+                prefixIcon={t === "all" ? <IconDot3HorizontalChatbubbleLeftLine /> : <IconMagnifyingglassLine />}
+                label={t === "all" ? "모든 댓글" : "키워드 댓글"}
+                description={
+                  t === "all"
+                    ? disabled && !scheduledLocked
+                      ? "이 게시물에는 이미 모든 댓글 자동화가 있어요 (게시물마다 하나)"
+                      : "댓글을 남긴 모든 분께 DM을 보내요"
+                    : "지정한 키워드가 포함된 댓글에만 DM을 보내요"
+                }
+                suffix={<RadioSelectBoxRadiomark />}
+              />
             );
           })}
-        </VStack>
+        </RadioSelectBoxRoot>
         {draft.trigger.type === "keyword" && (
           <>
             <KeywordInput
@@ -525,7 +617,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
         )}
         {mode === "create" && (
           <HStack justify="flex-end">
-            <ActionButton variant="neutralSolid" onClick={() => confirmSection("trigger")}>
+            <ActionButton variant="neutralWeak" onClick={() => confirmSection("trigger")}>
               다음
             </ActionButton>
           </HStack>
@@ -536,6 +628,8 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
 
   const dmSection = (
     <SectionBlock
+      id="sec-dm"
+      nudge={nudge === "dm" ? "이 단계를 확인하고 ‘다음’을 눌러 주세요" : null}
       title="팬이 받을 DM을 확인해 주세요"
       label="보낼 DM"
       icon="✉️"
@@ -559,7 +653,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
         {(showErrors || mode === "edit") && dmErrors.length > 0 && <Callout tone="critical" description={dmErrors.join(" · ")} />}
         {mode === "create" && (
           <HStack justify="flex-end">
-            <ActionButton variant="neutralSolid" onClick={() => confirmSection("dm")}>
+            <ActionButton variant="neutralWeak" onClick={() => confirmSection("dm")}>
               다음
             </ActionButton>
           </HStack>
@@ -570,6 +664,9 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
 
   const extrasSection = (
     <SectionBlock
+      id="sec-extras"
+      nudge={nudge === "extras" ? "이 단계를 확인하고 ‘확인’을 눌러 주세요" : null}
+      errors={showErrors ? extrasErrors : undefined}
       title="추가 기능도 켤까요?"
       label="추가 기능"
       icon="✨"
@@ -585,7 +682,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
         <ExtrasEditor extras={draft.extras} onChange={(extras) => set({ extras })} sendMode={original?.sendMode} code={code || undefined} username={state.account.username} />
         {mode === "create" && (
           <HStack justify="flex-end">
-            <ActionButton variant="neutralSolid" onClick={() => confirmSection("extras")}>
+            <ActionButton variant="neutralWeak" onClick={() => confirmSection("extras")}>
               확인
             </ActionButton>
           </HStack>
@@ -626,7 +723,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
             </Text>
           </VStack>
           {(mode === "create" || (original?.sendMode === "immediate" && !original.nextPost)) && (
-            <ActionButton size="small" variant="neutralWeak" onClick={() => (mode === "create" ? setStep("post") : setPostOpen(true))}>
+            <ActionButton size="small" variant="neutralWeak" onClick={() => setPostOpen(true)}>
               게시물 바꾸기
             </ActionButton>
           )}
@@ -635,7 +732,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
 
       {mode === "edit" && changes > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <PageBanner tone="informative" description={`${changes}곳을 바꿨어요. 저장해야 반영돼요.`} suffix={<PageBannerButton onClick={saveEdit}>바꾼 내용 저장</PageBannerButton>} />
+          <Callout tone="informative" description={`${changes}곳을 바꿨어요. 아래 ‘바꾼 내용 저장’을 눌러야 반영돼요.`} />
         </div>
       )}
       {batchSending && (
@@ -656,7 +753,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
             postId={draft.postId}
             nextPost={draft.nextPost}
             nextPostDisabled={pendingNext ? "이미 다음에 올릴 게시물 자동화가 있어요" : undefined}
-            onChange={(v) => set(v)}
+            onChange={(v) => (setPostError(false), set(v))}
             refreshing={refreshing}
             onRefresh={
               state.account.mode === "live"
@@ -673,6 +770,14 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
                 : undefined
             }
           />
+          {postError && !draft.postId && !draft.nextPost && <Callout tone="critical" description="자동화를 걸 게시물을 골라 주세요." />}
+          {post?.restricted && (
+            <Callout
+              tone="warning"
+              title="제한된 게시물이에요"
+              description="연령 제한 등으로 제한된 게시물은 댓글 DM이 동작하지 않아요. 추가 기능에서 DM 공유·DM 코드를 함께 켜 두세요."
+            />
+          )}
           <FooterBar>
             <ActionButton variant="brandSolid" size="large" onClick={nextFromPost}>
               다음
@@ -695,14 +800,14 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
                   requestAnimationFrame(() => previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
               }}
               onAdd={() => {
-                sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ draft, code }));
+                sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ draft, code, open, done, fromLink: fromLink.current, at: Date.now() }));
                 allowLeave();
-                nav(`/templates/new?return=${encodeURIComponent("/automations/new")}`);
+                nav(`/templates/new?return=${encodeURIComponent("/automations/new?step=template")}`);
               }}
               onEdit={(t) => {
-                sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ draft, code }));
+                sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ draft, code, open, done, fromLink: fromLink.current, at: Date.now() }));
                 allowLeave();
-                nav(`/templates/${t.id}/edit?return=${encodeURIComponent("/automations/new")}`);
+                nav(`/templates/${t.id}/edit?return=${encodeURIComponent("/automations/new?step=template&edited=1")}`);
               }}
               onDelete={async (t) => {
                 const ok = await confirm({
@@ -730,7 +835,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
             />
           </div>
           <FooterBar style={{ gridColumn: "1 / -1" }}>
-            <ActionButton variant="neutralOutline" size="large" onClick={() => setStep("post")}>
+            <ActionButton variant="neutralWeak" size="large" onClick={() => setStep("post")}>
               이전
             </ActionButton>
             <ActionButton
@@ -800,7 +905,7 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
             ) : (
               <>
                 {fromLink.current && (
-                  <ActionButton variant="neutralSolid" size="large" onClick={() => void register("immediate")}>
+                  <ActionButton variant="neutralWeak" size="large" onClick={() => readyToRegister() && void register("immediate")}>
                     즉시 발송으로 등록
                   </ActionButton>
                 )}
@@ -848,7 +953,13 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
       </Modal>
 
       {/* 수정: 게시물 바꾸기 (즉시 발송만) */}
-      <Modal open={postOpen} onClose={() => setPostOpen(false)} title="게시물 바꾸기" description="바꾼 게시물에는 저장한 뒤 달리는 댓글부터 보내요" wide>
+      <Modal
+        open={postOpen}
+        onClose={() => setPostOpen(false)}
+        title="게시물 바꾸기"
+        description={mode === "edit" ? "바꾼 게시물에는 저장한 뒤 달리는 댓글부터 보내요" : "확인한 키워드·DM·추가 기능은 그대로 둬요"}
+        wide
+      >
         <PostGrid
           posts={postList}
           postId={draft.postId}
@@ -859,66 +970,74 @@ export function AutomationWizardPage({ mode }: { mode: "create" | "edit" }) {
         />
       </Modal>
 
-      {/* 등록 중 → 등록했어요 */}
+      {/* 등록 중 → 등록했어요 (SEED ResultSection) */}
       {phase !== "idle" && mode === "create" && (
         <div className="overlay-screen" role="status" aria-live="polite">
-          <VStack gap="x4" align="center">
-            {phase === "saving" ? (
-              <ProgressCircle size="40" tone="brand" />
-            ) : (
-              <div
-                style={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: "50%",
-                  background: "var(--seed-color-bg-positive-solid)",
-                  display: "grid",
-                  placeItems: "center",
-                  color: "var(--seed-color-fg-on-positive-solid)",
+          {phase === "saving" ? (
+            <VStack align="center" gap="x4">
+              <ProgressCircle size="40" tone="neutral" />
+              <Text textStyle="t5Bold">등록 중이에요</Text>
+            </VStack>
+          ) : (
+            <VStack gap="x4" align="center" style={{ width: "min(420px, calc(100vw - 32px))" }}>
+              <ResultSection
+                asset={
+                  <span className="result-check" aria-hidden>
+                    <Icon svg={<IconCheckmarkFatFill />} size="x6" />
+                  </span>
+                }
+                title="자동화를 등록했어요"
+                description={
+                  draft.nextPost
+                    ? "다음 게시물을 올리면 첫 댓글이 달릴 때 연결되고, 그때부터 DM을 보내요."
+                    : draft.sendMode === "scheduled"
+                      ? `${fmtDateTime(draft.scheduleAt)}에 모아 둔 댓글에 보내요.`
+                      : draft.sendMode === "batch"
+                        ? "지난 댓글에 보내기 시작했어요. 진행 상황은 자동화 상세에서 볼 수 있어요."
+                        : "이제 댓글이 달리면 DM을 보내요."
+                }
+                primaryActionProps={
+                  state.account.mode === "demo" && !draft.nextPost && draft.sendMode === "immediate"
+                    ? {
+                        children: "시뮬레이터에서 바로 시험하기",
+                        variant: "brandSolid",
+                        onClick: () => {
+                          allowLeave();
+                          const kw = draft.trigger.type === "keyword" ? draft.trigger.keywords[0] : "";
+                          nav(`/simulator?postId=${draft.postId}${kw ? `&text=${encodeURIComponent(`${kw} 주세요!`)}` : ""}`);
+                        },
+                      }
+                    : {
+                        children: "자동화 보기",
+                        variant: "neutralSolid",
+                        onClick: () => {
+                          allowLeave();
+                          nav(createdId ? `/automations/${createdId}` : "/");
+                        },
+                      }
+                }
+                secondaryActionProps={{
+                  children: "홈으로",
+                  variant: "neutralWeak",
+                  onClick: () => {
+                    allowLeave();
+                    nav("/");
+                  },
                 }}
-              >
-                <Icon svg={<IconCheckmarkFatFill />} size="x6" />
-              </div>
-            )}
-            <Text textStyle="t8Bold">{phase === "saving" ? "등록 중이에요" : "자동화를 등록했어요"}</Text>
-            <Text textStyle="t4Regular" color="fg.neutralMuted">
-              {phase === "saving"
-                ? "잠시만 기다려 주세요"
-                : draft.sendMode === "scheduled"
-                  ? `${fmtDateTime(draft.scheduleAt)}에 보내요`
-                  : draft.sendMode === "batch"
-                    ? "지난 댓글에 보내기 시작했어요"
-                    : "이제 댓글이 달리면 DM을 보내요"}
-            </Text>
-            {phase === "done" && createdId && (templates.data?.mine.length ?? 0) === 0 && (
-              <VStack gap="x3" align="center" className="guide-box" style={{ marginTop: 16, padding: 20, maxWidth: 380 }}>
-                <Text textStyle="t5Bold">방금 만든 자동화, 템플릿으로 만들어 볼까요?</Text>
-                <Text textStyle="t3Regular" color="fg.neutralMuted" align="center">
-                  다음에 같은 DM을 쓸 거라면 템플릿으로 저장해 두세요. 템플릿만 고르면 DM이 한 번에 채워져요.
-                </Text>
-                <HStack gap="x2">
-                  <ActionButton
-                    variant="neutralWeak"
-                    onClick={() => {
-                      allowLeave();
-                      nav("/");
-                    }}
-                  >
-                    다음에
-                  </ActionButton>
-                  <ActionButton
-                    variant="brandSolid"
-                    onClick={() => {
-                      allowLeave();
-                      nav(`/templates/new?fromAutomation=${createdId}`);
-                    }}
-                  >
-                    템플릿 만들기
-                  </ActionButton>
-                </HStack>
-              </VStack>
-            )}
-          </VStack>
+              />
+              {createdId && (templates.data?.mine.length ?? 0) === 0 && (
+                <ActionableCallout
+                  tone="neutral"
+                  title="이 DM을 템플릿으로 저장할까요?"
+                  description="다음에 같은 DM을 쓸 때 템플릿만 고르면 한 번에 채워져요."
+                  onClick={() => {
+                    allowLeave();
+                    nav(`/templates/new?fromAutomation=${createdId}`);
+                  }}
+                />
+              )}
+            </VStack>
+          )}
         </div>
       )}
     </div>

@@ -150,7 +150,13 @@ export class Engine {
 
     await this.bindNextPost(c.postId);
     const a = this.pickAutomation(c.postId, c.text);
-    if (!a) return { skipped: "no-match" };
+    if (!a) {
+      // 조건은 맞는데 꺼 둔 자동화만 있으면 "꺼져 있어요"라고 알려 줘요
+      const off = this.db.automations.find(
+        (x) => x.postId === c.postId && !x.enabled && (x.trigger.type === "all" || keywordHit(x.trigger, c.text)),
+      );
+      return off ? { automationId: off.id, skipped: "off" } : { skipped: "no-match" };
+    }
     if (this.db.settings.dmPaused) return { automationId: a.id, skipped: "paused" };
     // 같은 사람에게는 한 번만 (이미 DM을 받았거나 보낼 예정이면 건너뛰어요)
     if (this.alreadyReached(a.id, c.userId)) return { automationId: a.id, skipped: "already-sent" };
@@ -375,6 +381,8 @@ export class Engine {
     } catch {
       comments = this.db.comments.filter((c) => c.postId === a.postId && c.createdAt >= since);
     }
+    // 댓글을 불러오는 동안 멈췄으면 보내지 않아요
+    if (a.batch?.stopped) return 0;
     // 웹훅으로 이미 받은 댓글과 합쳐요
     for (const c of comments) if (!this.db.comments.some((x) => x.id === c.id)) this.db.comments.push(c);
     const reached = this.db.deliveries.filter(
@@ -678,6 +686,7 @@ export class Engine {
     } else {
       item.attempts += 1;
       log.error = result.error;
+      if (result.recipient) log.recipientIssue = true;
       if (result.authError && db.account) db.account.needsReauth = true;
       if (result.retryable && item.attempts < MAX_ATTEMPTS) {
         log.status = "retrying";

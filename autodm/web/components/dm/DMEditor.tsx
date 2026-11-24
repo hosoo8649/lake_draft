@@ -2,22 +2,26 @@ import { IconChevronRightLine, IconPersonCircleLine } from "@karrotmarket/react-
 import { Icon, SuffixIcon, Text, VStack } from "@seed-design/react";
 import { useState } from "react";
 import { ActionButton } from "seed-design/ui/action-button";
-import { SegmentedControl, SegmentedControlItem } from "seed-design/ui/segmented-control";
-import { Switch } from "seed-design/ui/switch";
+import { TabsList, TabsRoot, TabsTrigger } from "seed-design/ui/tabs";
+import { Checkbox } from "seed-design/ui/checkbox";
 import { emptyButton } from "@shared/factory";
 import type { DMButton, DMContent, DMMessage, LinkItem, Post } from "@shared/types";
 import { Conversation, type DMTab } from "./Bubble";
-import { ButtonEditSheet, FullEditModal, TextEditSheet } from "./sheets";
+import { ButtonEditSheet, FullEditModal, TextEditSheet, tabOk } from "./sheets";
 
 export type { DMTab };
 
-function GateTabs(props: { value: DMTab; onChange: (t: DMTab) => void }) {
+function GateTabs(props: { value: DMTab; onChange: (t: DMTab) => void; dm: DMContent; readOnly?: boolean }) {
+  // 보이지 않는 탭에 고칠 곳이 있으면 점으로 알려 줘요 (SEED Tabs notification) — 미리보기에서는 표시 안 함
+  const warn = (t: DMTab) => !props.readOnly && !tabOk(props.dm, t);
   return (
-    <SegmentedControl aria-label="받는 사람" value={props.value} onValueChange={(v) => props.onChange(v as DMTab)}>
-      <SegmentedControlItem value="gate">팔로우 확인</SegmentedControlItem>
-      <SegmentedControlItem value="follower">팔로워</SegmentedControlItem>
-      <SegmentedControlItem value="nonFollower">비팔로워</SegmentedControlItem>
-    </SegmentedControl>
+    <TabsRoot value={props.value} onValueChange={(v) => props.onChange(v as DMTab)} triggerLayout="fill" size="small">
+      <TabsList aria-label="받는 사람">
+        <TabsTrigger value="gate" notification={warn("gate")}>팔로우 확인</TabsTrigger>
+        <TabsTrigger value="follower" notification={warn("follower")}>팔로워</TabsTrigger>
+        <TabsTrigger value="nonFollower" notification={warn("nonFollower")}>비팔로워</TabsTrigger>
+      </TabsList>
+    </TabsRoot>
   );
 }
 
@@ -60,28 +64,29 @@ export function DMStage(props: {
       <div className="stage">
         {!props.hideGateSwitch && (
           <div className="stage__head">
-            <Icon svg={<IconPersonCircleLine />} size="x5" color="fg.neutralMuted" />
             <VStack gap="x0_5" grow>
-              <Text textStyle="t4Bold">팔로우 확인 후 보내기</Text>
+              {/* 등록할 때 함께 저장되는 선택 → Checkbox (SEED: Switch는 바로 적용될 때만) */}
+              <Checkbox
+                label="팔로우 확인 후 보내기"
+                weight="bold"
+                checked={gate}
+                disabled={props.gateLocked}
+                onCheckedChange={(c) => {
+                  const v = c === true;
+                  const main = !v && dm.main.format === "carousel" ? { ...dm.main, format: "text" as const } : dm.main;
+                  onChange({ ...dm, main, followGate: { ...dm.followGate, enabled: v } });
+                  setTab("gate");
+                }}
+              />
               {props.gateLocked && (
                 <Text textStyle="t2Regular" color="fg.neutralSubtle">
                   팔로우 확인 여부는 등록한 뒤 바꿀 수 없어요
                 </Text>
               )}
             </VStack>
-            <Switch
-              checked={gate}
-              disabled={props.gateLocked}
-              aria-label="팔로우 확인 후 보내기"
-              onCheckedChange={(v) => {
-                const main = !v && dm.main.format === "carousel" ? { ...dm.main, format: "text" as const } : dm.main;
-                onChange({ ...dm, main, followGate: { ...dm.followGate, enabled: v } });
-                setTab("gate");
-              }}
-            />
           </div>
         )}
-        {gate && <GateTabs value={current} onChange={setTab} />}
+        {gate && <GateTabs value={current} onChange={setTab} dm={dm} />}
         <Conversation
           dm={dm}
           tab={current}
@@ -168,7 +173,7 @@ export function DMPreview(props: { dm: DMContent; username?: string; post?: Post
   return (
     <div className="stage">
       {props.header}
-      {gate && <GateTabs value={tab} onChange={setTab} />}
+      {gate && <GateTabs value={tab} onChange={setTab} dm={props.dm} readOnly />}
       <Conversation dm={props.dm} tab={gate ? tab : "follower"} username={props.username} post={props.post} sampleComment={props.sampleComment} />
     </div>
   );

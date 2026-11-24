@@ -1,5 +1,6 @@
 import { HStack, Text, VStack } from "@seed-design/react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ActionButton } from "seed-design/ui/action-button";
 import { Modal } from "./Modal";
 
@@ -25,6 +26,11 @@ const SLIDES = [
     body: "DM과 추가 기능 설정을 템플릿으로 저장해 두면, 다음부터 고르기만 하면 돼요.",
   },
   {
+    emoji: "🧪",
+    title: "시뮬레이터로 먼저 시험해요",
+    body: "팬이 되어 댓글을 달고, 받은 DM과 버튼을 눌러 보며 자동화가 어떻게 동작하는지 미리 확인해요. 데모 모드에서 쓸 수 있어요.",
+  },
+  {
     emoji: "⏸️",
     title: "한 번에 멈추고 다시 켜요",
     body: "이벤트가 끝났거나 링크를 잠깐 바꿔야 할 때 설정 › 운영에서 DM 발송과 댓글 답글을 한 번에 멈출 수 있어요.",
@@ -35,6 +41,7 @@ export const TOUR_KEY = "autodm:tour-seen";
 
 /** 오토DM 둘러보기 */
 export function Tour(props: { open: boolean; onClose: () => void }) {
+  const nav = useNavigate();
   const [i, setI] = useState(0);
   const last = i === SLIDES.length - 1;
   const close = () => {
@@ -55,8 +62,16 @@ export function Tour(props: { open: boolean; onClose: () => void }) {
               이전
             </ActionButton>
           )}
-          <ActionButton variant="brandSolid" flexGrow onClick={() => (last ? close() : setI(i + 1))}>
-            {last ? "시작하기" : "다음"}
+          <ActionButton
+            variant="neutralSolid"
+            flexGrow
+            onClick={() => {
+              if (!last) return setI(i + 1);
+              close();
+              nav("/automations/new"); // 둘러본 뒤 바로 첫 자동화 만들기로
+            }}
+          >
+            {last ? "첫 자동화 만들기" : "다음"}
           </ActionButton>
         </HStack>
       }
@@ -74,9 +89,9 @@ export function Tour(props: { open: boolean; onClose: () => void }) {
               style={{
                 width: k === i ? 18 : 6,
                 height: 6,
-                borderRadius: 3,
+                borderRadius: "var(--seed-radius-full)",
                 background: k === i ? "var(--seed-color-bg-neutral-inverted)" : "var(--seed-color-bg-neutral-weak)",
-                transition: "width 0.2s",
+                transition: "width var(--seed-duration-d4)",
               }}
             />
           ))}

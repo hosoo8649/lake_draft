@@ -22,7 +22,9 @@ function ToastBridge({ children }: { children: ReactNode }) {
   const adapter = useSnackbarAdapter();
   const toast = useCallback<ToastFn>(
     (message, variant = "default") => {
-      adapter.create({ timeout: 3000, strategy: "immediate", render: () => <Snackbar variant={variant} message={message} /> });
+      // SEED snackbar: 기본 4초, 긴 문구는 더 오래. 한 번에 하나씩 차례로 보여요
+      const timeout = message.length > 40 ? 6000 : 4000;
+      adapter.create({ timeout, strategy: "queued", render: () => <Snackbar variant={variant} message={message} /> });
     },
     [adapter],
   );

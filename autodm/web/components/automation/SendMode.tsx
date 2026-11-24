@@ -4,10 +4,11 @@ import {
   IconDot3HorizontalChatbubbleLeftLine,
   IconPaperplaneLine,
 } from "@karrotmarket/react-monochrome-icon";
-import { HStack, Icon, Text, VStack } from "@seed-design/react";
+import { Box, HStack, Icon, Text, VStack } from "@seed-design/react";
 import { useMemo, type ReactNode } from "react";
 import { Chip } from "seed-design/ui/chip";
-import { Switch } from "seed-design/ui/switch";
+import { RadioSelectBoxItem, RadioSelectBoxRadiomark, RadioSelectBoxRoot } from "seed-design/ui/select-box";
+import { Checkbox } from "seed-design/ui/checkbox";
 import { WheelPicker } from "seed-design/ui/wheel-picker";
 import { DAY, LIMITS, MINUTE } from "@shared/limits";
 import type { SendMode } from "@shared/types";
@@ -62,70 +63,40 @@ export function SendModeOptions(props: {
   expanded?: Partial<Record<SendMode, ReactNode>>;
 }) {
   return (
-    <VStack gap="x2" role="radiogroup" aria-label="언제 보낼까요?">
+    <RadioSelectBoxRoot aria-label="언제 보낼까요?" value={props.value} onValueChange={(v) => props.onChange(v as SendMode)}>
       {(["immediate", "scheduled", "batch"] as SendMode[]).map((m) => {
         const reason = props.disabled?.[m];
-        const selected = props.value === m;
         return (
-          <div
+          <RadioSelectBoxItem
             key={m}
-            className="option-card"
-            data-selected={selected}
-            style={{
-              flexDirection: "column",
-              cursor: "default",
-              opacity: reason ? 0.5 : 1,
-            }}
-          >
-            <button
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              disabled={!!reason}
-              onClick={() => props.onChange(m)}
-              style={{
-                all: "unset",
-                display: "flex",
-                gap: 12,
-                alignItems: "center",
-                width: "100%",
-                cursor: reason ? "not-allowed" : "pointer",
-              }}
-            >
-              <span className="option-card__icon">
-                <Icon svg={ICON[m]} />
-              </span>
-              <VStack gap="x0_5" as="span" grow>
-                <Text textStyle="t5Bold">{SEND_MODE_LABEL[m]}</Text>
-                <Text textStyle="t3Regular" color="fg.neutralMuted">
-                  {reason ?? SUMMARY[m]}
-                </Text>
-              </VStack>
-              <span className="option-card__radio" aria-hidden />
-            </button>
-            {selected && !reason && (
-              <div className="option-card__detail" style={{ width: "100%" }}>
-                {DETAILS[m].map(([b, rest]) => (
-                  <HStack key={b} gap="x2" align="flex-start">
-                    <Icon
-                      svg={<IconCheckmarkLine />}
-                      size="x4"
-                      color="fg.neutralSubtle"
-                    />
-                    <span>
-                      <b>{b}</b> {rest}
-                    </span>
-                  </HStack>
-                ))}
-                {props.expanded?.[m] && (
-                  <div style={{ marginTop: 8 }}>{props.expanded[m]}</div>
-                )}
-              </div>
-            )}
-          </div>
+            value={m}
+            disabled={!!reason}
+            prefixIcon={ICON[m]}
+            label={SEND_MODE_LABEL[m]}
+            description={reason ?? SUMMARY[m]}
+            suffix={<RadioSelectBoxRadiomark />}
+            footer={
+              reason ? undefined : (
+                <VStack gap="x1_5" pt="x1">
+                  {DETAILS[m].map(([b, rest]) => (
+                    <HStack key={b} gap="x2" align="flex-start">
+                      <Icon svg={<IconCheckmarkLine />} size="x4" color="fg.neutralSubtle" />
+                      <Text textStyle="t3Regular" color="fg.neutralMuted">
+                        <Text as="span" textStyle="t3Bold" color="fg.neutral">
+                          {b}
+                        </Text>{" "}
+                        {rest}
+                      </Text>
+                    </HStack>
+                  ))}
+                  {props.expanded?.[m] && <Box pt="x2">{props.expanded[m]}</Box>}
+                </VStack>
+              )
+            }
+          />
         );
       })}
-    </VStack>
+    </RadioSelectBoxRoot>
   );
 }
 
@@ -195,19 +166,23 @@ export function SchedulePicker(props: {
 
   return (
     <VStack gap="x3">
-      <div className="chips">
-        {quick.map((q) => (
-          <Chip.Toggle
-            key={q.label}
-            size="small"
-            variant="outlineStrong"
-            checked={at === q.t}
-            onCheckedChange={() => props.onChange(q.t, props.continueAfter)}
-          >
-            <Chip.Label>{q.label}</Chip.Label>
-          </Chip.Toggle>
-        ))}
-      </div>
+      {/* 빠른 시각 — 하나만 고르는 칩 (SEED Chip.RadioRoot) */}
+      <Chip.RadioRoot
+        aria-label="빠른 시각"
+        value={quick.find((q) => q.t === at)?.label ?? ""}
+        onValueChange={(v: string) => {
+          const q = quick.find((x) => x.label === v);
+          if (q) props.onChange(q.t, props.continueAfter);
+        }}
+      >
+        <HStack gap="x2" wrap>
+          {quick.map((q) => (
+            <Chip.RadioItem key={q.label} value={q.label} size="small" variant="outlineStrong">
+              <Chip.Label>{q.label}</Chip.Label>
+            </Chip.RadioItem>
+          ))}
+        </HStack>
+      </Chip.RadioRoot>
       <div className="wheel-wrap">
         <WheelPicker
           aria-label="보낼 시각"
@@ -250,24 +225,18 @@ export function SchedulePicker(props: {
       <Text textStyle="t3Bold" color="fg.brand" align="center">
         {fmtDateTime(at)}에 보내요
       </Text>
-      <HStack
-        justify="space-between"
-        align="flex-start"
-        gap="x4"
-        className="guide-box"
-      >
-        <VStack gap="x0_5">
-          <Text textStyle="t4Bold">보낸 뒤 새 댓글에도 바로 보내기</Text>
-          <Text textStyle="t3Regular" color="fg.neutralMuted">
-            예약 시각이 지난 뒤 달리는 댓글에도 바로 보내요
-          </Text>
-        </VStack>
-        <Switch
+      {/* 등록할 때 함께 저장되는 설정이라 Switch 대신 Checkbox (SEED switch 가이드) */}
+      <VStack gap="x1" className="guide-box">
+        <Checkbox
+          label="보낸 뒤 새 댓글에도 바로 보내기"
+          weight="bold"
           checked={props.continueAfter}
-          onCheckedChange={(v) => props.onChange(at, v)}
-          aria-label="보낸 뒤 새 댓글에도 바로 보내기"
+          onCheckedChange={(v) => props.onChange(at, v === true)}
         />
-      </HStack>
+        <Text textStyle="t3Regular" color="fg.neutralMuted" style={{ paddingLeft: 30 }}>
+          예약 시각이 지난 뒤 달리는 댓글에도 바로 보내요
+        </Text>
+      </VStack>
     </VStack>
   );
 }

@@ -1,9 +1,17 @@
-import { IconChevronRightLine, IconDot3VerticalLine, IconPlusLine } from "@karrotmarket/react-monochrome-icon";
+import {
+  IconBookmarkLine,
+  IconChevronRightLine,
+  IconDot3VerticalLine,
+  IconPlusLine,
+  IconQuestionmarkCircleLine,
+  IconTrophyLine,
+} from "@karrotmarket/react-monochrome-icon";
 import { HStack, Icon, PrefixIcon, Text, VStack } from "@seed-design/react";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ActionButton } from "seed-design/ui/action-button";
 import { Badge } from "seed-design/ui/badge";
+import { List, ListButtonItem, ListDivider } from "seed-design/ui/list";
 import { MenuContent, MenuItem, MenuRoot, MenuTrigger } from "seed-design/ui/menu";
 import { PageBanner, PageBannerButton } from "seed-design/ui/page-banner";
 import { SegmentedControl, SegmentedControlItem } from "seed-design/ui/segmented-control";
@@ -70,36 +78,31 @@ function AutomationRow({ a }: { a: AutomationView }) {
   const { state } = useAppState();
   const canToggle = a.sendMode === "immediate" && a.status !== "waiting";
   return (
-    <HStack gap="x3" py="x3" align="center" style={{ borderTop: "1px solid var(--seed-color-stroke-neutral-subtle)" }}>
-      <VStack gap="x1" grow style={{ minWidth: 0, cursor: "pointer" }} onClick={() => nav(`/automations/${a.id}`)}>
-        <HStack gap="x1_5" wrap>
+    <HStack gap="x3" py="x3" align="center" className="auto-row">
+      {/* 목록 한 줄 전체가 상세로 가는 버튼 — 키보드로도 열 수 있어요 */}
+      <button type="button" className="row-main" onClick={() => nav(`/automations/${a.id}`)}>
+        <HStack gap="x1_5" wrap as="span">
           <Text textStyle="t4Bold">{a.title || triggerSummary(a.trigger)}</Text>
           <StatusBadge status={a.status} />
-          <Badge size="medium" variant="outline" tone="neutral">
-            {a.sendMode === "immediate" && a.origin === "batch" ? "일괄 → 즉시" : SEND_MODE_LABEL[a.sendMode]}
-          </Badge>
-          {a.dm.followGate.enabled && (
-            <Badge size="medium" variant="weak" tone="informative">
-              팔로우 확인
+          {/* 배지는 한 줄에 2개까지 (SEED badge 가이드) — 가장 중요한 것 하나만 더 보여요 */}
+          {a.health.state !== "ok" ? (
+            <Badge size="medium" variant="weak" tone="critical">
+              확인 필요
             </Badge>
-          )}
-          {a.stats.queued > 0 && (
+          ) : a.stats.queued > 0 ? (
             <Badge size="medium" variant="weak" tone="warning">
               순차 발송중 {a.stats.queued}
             </Badge>
-          )}
-          {a.health.state !== "ok" && (
-            <Badge size="medium" variant="solid" tone="critical">
-              확인 필요
-            </Badge>
-          )}
+          ) : null}
         </HStack>
-        <Text textStyle="t3Regular" color="fg.neutralMuted" maxLines={1}>
-          {a.title ? `${triggerSummary(a.trigger)} · ` : ""}
-          {a.sendMode === "scheduled" && a.schedule && !a.schedule.firedAt ? `${fmtDateTime(a.schedule.at)} 발송 · ` : ""}
-          전송 {fmtNumber(a.stats.sent)} · 읽음 {fmtNumber(a.stats.read)} · 클릭 {fmtNumber(a.stats.clicks)}
+        <Text as="span" textStyle="t3Regular" color="fg.neutralMuted" maxLines={1}>
+          {a.sendMode === "immediate" && a.origin === "batch" ? "일괄 → 즉시 발송" : SEND_MODE_LABEL[a.sendMode]}
+          {a.dm.followGate.enabled ? " · 팔로우 확인" : ""}
+          {a.title ? ` · ${triggerSummary(a.trigger)}` : ""}
+          {a.sendMode === "scheduled" && a.schedule && !a.schedule.firedAt ? ` · ${fmtDateTime(a.schedule.at)} 발송` : ""}
+          {` · 전송 ${fmtNumber(a.stats.sent)} · 읽음 ${fmtNumber(a.stats.read)} · 클릭 ${fmtNumber(a.stats.clicks)}`}
         </Text>
-      </VStack>
+      </button>
       {canToggle ? (
         <Switch
           checked={a.enabled}
@@ -110,16 +113,16 @@ function AutomationRow({ a }: { a: AutomationView }) {
       ) : null}
       <MenuRoot>
         <MenuTrigger asChild>
-          <button type="button" className="icon-btn" aria-label="더 보기">
+          <ActionButton layout="iconOnly" variant="ghost" size="small" aria-label={`${a.title || triggerSummary(a.trigger)} 더 보기`}>
             <Icon svg={<IconDot3VerticalLine />} />
-          </button>
+          </ActionButton>
         </MenuTrigger>
         <MenuContent>
           <MenuItem label="상세 보기" onClick={() => nav(`/automations/${a.id}`)} />
           <MenuItem label="수정" onClick={() => nav(`/automations/${a.id}/edit`)} />
           <MenuItem label="복제" onClick={() => act.duplicate(a)} />
           <MenuItem label="템플릿으로 저장" onClick={() => act.saveAsTemplate(a)} />
-          <MenuItem label="삭제" onClick={() => act.remove(a)} />
+          <MenuItem label="삭제" tone="critical" onClick={() => act.remove(a)} />
         </MenuContent>
       </MenuRoot>
     </HStack>
@@ -182,12 +185,12 @@ export function HomePage() {
         title="홈"
         description={`@${acc.username}의 자동 DM 성과와 게시물별 자동화를 한눈에 봐요`}
         actions={
-          <>
+          data.automations.length > 0 ? (
             <ActionButton variant="brandSolid" onClick={() => nav("/automations/new")}>
               <PrefixIcon svg={<IconPlusLine />} />
               자동화 추가
             </ActionButton>
-          </>
+          ) : undefined
         }
       />
 
@@ -201,15 +204,16 @@ export function HomePage() {
             suffix={<PageBannerButton onClick={() => nav("/connect")}>다시 연동</PageBannerButton>}
           />
         )}
-        {state.settings.dmPaused || state.settings.replyPaused ? (
+        {/* 페이지 배너는 한 화면에 하나만 — 연결 끊김 > 일시 중지 > 데모 안내 순서 */}
+        {!acc.needsReauth && (state.settings.dmPaused || state.settings.replyPaused) ? (
           <PageBanner
             tone="warning"
-            title="일시 중지 중이에요"
+            title="일시 중지 중"
             description={state.settings.dmPaused ? "댓글이 달려도 DM을 보내지 않아요 (이미 시작한 일괄 발송은 끝까지 보내요)" : "댓글 자동 답글만 멈춰 있어요"}
             suffix={<PageBannerButton onClick={resumeAll}>모두 다시 켜기</PageBannerButton>}
           />
         ) : null}
-        {acc.mode === "demo" && (
+        {acc.mode === "demo" && !acc.needsReauth && !state.settings.dmPaused && !state.settings.replyPaused && (
           <PageBanner
             tone="informative"
             description="데모 모드예요. 시뮬레이터에서 팬처럼 댓글을 달고 받은 DM을 확인해 보세요."
@@ -224,24 +228,31 @@ export function HomePage() {
           <StatTile label="클릭률" value={`${s.totals.ctr}%`} hint="전송한 DM 대비 클릭 수" />
         </div>
 
-        <div className="grid-3 grid-3--stack">
-          {[
-            { emoji: "🗂️", title: "내 템플릿", desc: data.templateCount ? `${data.templateCount}개 저장됨` : "자주 쓰는 DM 저장하기", to: "/templates" },
-            { emoji: "🎉", title: "이벤트 추첨", desc: "댓글에서 당첨자 뽑기", to: "/draws" },
-            { emoji: "🧭", title: "DM이 안 가요?", desc: "원인과 해결 방법", to: "/help" },
-          ].map((c) => (
-            <button key={c.to} type="button" className="option-card" style={{ alignItems: "center" }} onClick={() => nav(c.to)}>
-              <span className="option-card__icon">{c.emoji}</span>
-              <VStack gap="x0_5" as="span" grow>
-                <Text textStyle="t5Bold">{c.title}</Text>
-                <Text textStyle="t3Regular" color="fg.neutralMuted">
-                  {c.desc}
-                </Text>
-              </VStack>
-              <Icon svg={<IconChevronRightLine />} color="fg.neutralSubtle" />
-            </button>
-          ))}
-        </div>
+        {/* 바로 가기 — SEED List (줄 전체가 누르는 영역) */}
+        <section className="card card--list">
+          <List>
+            {[
+              { icon: <IconBookmarkLine />, title: "내 템플릿", desc: data.templateCount ? `${data.templateCount}개 저장됨` : "자주 쓰는 DM 저장하기", to: "/templates" },
+              { icon: <IconTrophyLine />, title: "댓글 추첨", desc: "이벤트 댓글에서 당첨자 뽑기", to: "/draws" },
+              { icon: <IconQuestionmarkCircleLine />, title: "DM이 안 가요?", desc: "원인과 해결 방법", to: "/help" },
+            ].map((c, i) => (
+              <Fragment key={c.to}>
+                {i > 0 && <ListDivider />}
+                <ListButtonItem
+                  prefix={
+                    <span className="list-icon">
+                      <Icon svg={c.icon} />
+                    </span>
+                  }
+                  title={c.title}
+                  detail={c.desc}
+                  suffix={<Icon svg={<IconChevronRightLine />} color="fg.neutralSubtle" />}
+                  onClick={() => nav(c.to)}
+                />
+              </Fragment>
+            ))}
+          </List>
+        </section>
 
         <Section title="최근 7일 추이">
           <TrendChart data={s.last7} />
@@ -262,16 +273,12 @@ export function HomePage() {
               emoji="💬"
               title="아직 자동화가 없어요"
               description="게시물과 템플릿만 고르면 세 단계 만에 자동 DM을 만들 수 있어요."
-              action={
-                <ActionButton variant="brandSolid" onClick={() => nav("/automations/new")}>
-                  첫 자동화 만들기
-                </ActionButton>
-              }
+              action={{ label: "첫 자동화 만들기", onClick: () => nav("/automations/new"), variant: "brandSolid" }}
             />
           ) : (
             <VStack gap="x4">
               {groups.map((g) => (
-                <div key={g.key} className="card" style={{ padding: "14px 16px 4px" }}>
+                <div key={g.key} className="card auto-group">
                   <HStack gap="x3" pb="x3" align="center">
                     <PostThumb post={g.post} size="sm" />
                     <VStack gap="x0_5" grow style={{ minWidth: 0 }}>
@@ -286,7 +293,8 @@ export function HomePage() {
                     </VStack>
                     {g.post && (
                       <ActionButton size="small" variant="neutralWeak" onClick={() => nav(`/automations/new?postId=${g.post!.id}`)}>
-                        + 추가
+                        <PrefixIcon svg={<IconPlusLine />} />
+                        추가
                       </ActionButton>
                     )}
                   </HStack>

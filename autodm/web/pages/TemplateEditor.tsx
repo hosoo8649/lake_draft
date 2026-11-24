@@ -118,7 +118,7 @@ export function TemplateEditorPage() {
       const t = id ? await api<Template>(`/templates/${id}`, { method: "PUT", body }) : await api<Template>("/templates", { method: "POST", body });
       toast(id ? "템플릿을 고쳤어요. 다음에 만드는 자동화부터 바뀐 내용이 들어가요" : "템플릿을 저장했어요", "positive");
       allowLeave();
-      nav(ret ? `${ret}?selectTemplate=${t.id}` : "/templates");
+      nav(ret ? `${ret}${ret.includes("?") ? "&" : "?"}selectTemplate=${t.id}` : "/templates");
     } catch (e) {
       setSaving(false);
       if (e instanceof ApiError) setErrors(e.details);
@@ -171,7 +171,7 @@ export function TemplateEditorPage() {
           <DMStage dm={dm} onChange={(d) => (setDm(d), touch())} username={state.account.username} links={links} hideGateSwitch />
           <Callout tone="neutral" description="버튼 링크는 비워 둬도 템플릿으로 저장할 수 있어요. 자동화를 만들 때 넣으면 돼요." />
           <FooterBar>
-            <ActionButton variant="neutralOutline" size="large" onClick={() => setStep(1)}>
+            <ActionButton variant="neutralWeak" size="large" onClick={() => setStep(1)}>
               이전
             </ActionButton>
             <ActionButton variant="brandSolid" size="large" disabled={dm.main.format === "text" && !dm.main.text.trim()} onClick={() => setStep(3)}>
@@ -197,7 +197,7 @@ export function TemplateEditorPage() {
               템플릿에는 게시물, 댓글 조건(키워드), 발송 시점은 담기지 않아요.
             </Text>
             <FooterBar style={{ justifyContent: "flex-start" }}>
-              <ActionButton variant="neutralOutline" size="large" onClick={() => setStep(2)}>
+              <ActionButton variant="neutralWeak" size="large" onClick={() => setStep(2)}>
                 이전
               </ActionButton>
               <ActionButton variant="brandSolid" size="large" loading={saving} disabled={!name.trim()} onClick={save}>

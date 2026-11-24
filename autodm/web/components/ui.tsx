@@ -3,7 +3,10 @@ import { HStack, Icon, Text, VStack } from "@seed-design/react";
 import type { CSSProperties, ReactNode } from "react";
 import { Snackbar } from "@seed-design/react";
 import { useNavigate } from "react-router-dom";
+import { ActionButton } from "seed-design/ui/action-button";
 import { Badge } from "seed-design/ui/badge";
+import { ProgressCircle } from "seed-design/ui/progress-circle";
+import { ResultSection } from "seed-design/ui/result-section";
 import type { AutomationHealth, AutomationStatus, Post } from "@shared/types";
 import { MEDIA_LABEL, STATUS_LABEL, STATUS_TONE } from "../lib/format";
 
@@ -19,19 +22,22 @@ export function PageHeader(props: {
     <HStack justify="space-between" align="flex-start" gap="x4" pb="x6" wrap>
       <VStack gap="x1" style={{ minWidth: 0 }}>
         {props.back && (
-          <button
-            type="button"
-            className="icon-btn"
-            aria-label="뒤로"
-            style={{ marginLeft: -8, marginBottom: 4 }}
-            onClick={() => {
-              if (props.onBack) props.onBack();
-              else if (props.back === true) nav(-1);
-              else nav(props.back as string);
-            }}
-          >
-            <Icon svg={<IconChevronLeftLine />} />
-          </button>
+          <HStack>
+            <ActionButton
+              layout="iconOnly"
+              variant="ghost"
+              size="medium"
+              bleedX="asPadding"
+              aria-label="뒤로"
+              onClick={() => {
+                if (props.onBack) props.onBack();
+                else if (props.back === true) nav(-1);
+                else nav(props.back as string);
+              }}
+            >
+              <Icon svg={<IconChevronLeftLine />} />
+            </ActionButton>
+          </HStack>
         )}
         <Text as="h1" textStyle="t9Bold">
           {props.title}
@@ -54,11 +60,24 @@ export function PageHeader(props: {
   );
 }
 
-export function Section(props: { title?: ReactNode; description?: ReactNode; actions?: ReactNode; children: ReactNode; flat?: boolean }) {
+export function Section(props: {
+  title?: ReactNode;
+  description?: ReactNode;
+  actions?: ReactNode;
+  children: ReactNode;
+  flat?: boolean;
+}) {
   return (
     <section className={props.flat ? "card card--flat" : "card"}>
       {(props.title || props.actions) && (
-        <HStack justify="space-between" align="center" gap="x3" pb="x4" px={props.flat ? "x5" : 0} pt={props.flat ? "x5" : 0}>
+        <HStack
+          justify="space-between"
+          align="center"
+          gap="x3"
+          pb="x4"
+          px={props.flat ? "x5" : 0}
+          pt={props.flat ? "x5" : 0}
+        >
           <VStack gap="x0_5">
             {props.title && (
               <Text as="h2" textStyle="t6Bold">
@@ -79,9 +98,17 @@ export function Section(props: { title?: ReactNode; description?: ReactNode; act
   );
 }
 
-export function StatTile(props: { label: string; value: ReactNode; hint?: ReactNode }) {
+export function StatTile(props: {
+  label: string;
+  value: ReactNode;
+  hint?: ReactNode;
+}) {
   return (
-    <VStack className="card" gap="x1" style={{ padding: "var(--seed-dimension-x4)" }}>
+    <VStack
+      className="card"
+      gap="x1"
+      style={{ padding: "var(--seed-dimension-x4)" }}
+    >
       <Text textStyle="t3Medium" color="fg.neutralMuted">
         {props.label}
       </Text>
@@ -95,7 +122,13 @@ export function StatTile(props: { label: string; value: ReactNode; hint?: ReactN
   );
 }
 
-export function PostThumb({ post, size = "md" }: { post?: Post | null; size?: "xs" | "sm" | "md" }) {
+export function PostThumb({
+  post,
+  size = "md",
+}: {
+  post?: Post | null;
+  size?: "xs" | "sm" | "md";
+}) {
   const cls = size === "md" ? "thumb" : `thumb thumb--${size}`;
   if (!post) {
     return (
@@ -106,7 +139,11 @@ export function PostThumb({ post, size = "md" }: { post?: Post | null; size?: "x
   }
   return (
     <div className={cls}>
-      {post.thumbnailUrl ? <img src={post.thumbnailUrl} alt="" loading="lazy" /> : <span>{post.emoji ?? "🖼️"}</span>}
+      {post.thumbnailUrl ? (
+        <img src={post.thumbnailUrl} alt="" loading="lazy" />
+      ) : (
+        <span>{post.emoji ?? "🖼️"}</span>
+      )}
       {size === "md" && (
         <span className="thumb__badge">
           <Badge size="medium" variant="solid" tone="neutral">
@@ -148,7 +185,10 @@ export function HealthText({ health }: { health: AutomationHealth }) {
         : `확인 필요 · 실패 ${health.failedCount}건`;
   return (
     <VStack gap="x0_5">
-      <Text textStyle="t3Bold" color={health.state === "retrying" ? "fg.warning" : "fg.critical"}>
+      <Text
+        textStyle="t3Bold"
+        color={health.state === "retrying" ? "fg.warning" : "fg.critical"}
+      >
         {label}
       </Text>
       {health.reasons.map((r) => (
@@ -160,32 +200,72 @@ export function HealthText({ health }: { health: AutomationHealth }) {
   );
 }
 
-export function EmptyState(props: { emoji: string; title: ReactNode; description?: ReactNode; action?: ReactNode }) {
+/** 빈 상태 — SEED ResultSection */
+export function EmptyState(props: {
+  emoji: string;
+  title: ReactNode;
+  description?: ReactNode;
+  action?: {
+    label: string;
+    onClick: () => void;
+    variant?: "brandSolid" | "neutralSolid" | "neutralWeak";
+  };
+}) {
   return (
-    <VStack align="center" gap="x2" py="x10" px="x4" style={{ textAlign: "center" }}>
-      <div style={{ fontSize: 44 }}>{props.emoji}</div>
-      <Text textStyle="t6Bold">{props.title}</Text>
-      {props.description && (
-        <Text textStyle="t4Regular" color="fg.neutralMuted">
-          {props.description}
-        </Text>
-      )}
-      {props.action && <div style={{ marginTop: 8 }}>{props.action}</div>}
+    <VStack py="x8" px="x4">
+      <ResultSection
+        size="medium"
+        asset={
+          <span className="result-emoji" aria-hidden>
+            {props.emoji}
+          </span>
+        }
+        title={props.title}
+        description={props.description}
+        primaryActionProps={
+          props.action
+            ? {
+                children: props.action.label,
+                onClick: props.action.onClick,
+                variant: props.action.variant ?? "neutralSolid",
+              }
+            : undefined
+        }
+      />
     </VStack>
   );
 }
 
-export function IconBtn(props: { label: string; icon: ReactNode; onClick?: () => void }) {
+/** 아이콘만 있는 버튼 — SEED ActionButton(iconOnly, ghost) */
+export function IconBtn(props: {
+  label: string;
+  icon: ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
   return (
-    <button type="button" className="icon-btn" aria-label={props.label} title={props.label} onClick={props.onClick}>
+    <ActionButton
+      layout="iconOnly"
+      variant="ghost"
+      size="small"
+      aria-label={props.label}
+      disabled={props.disabled}
+      onClick={props.onClick}
+    >
       <Icon svg={props.icon} />
-    </button>
+    </ActionButton>
   );
 }
 
 export function Progress({ value }: { value: number }) {
   return (
-    <div className="progress" role="progressbar" aria-valuenow={Math.round(value * 100)} aria-valuemin={0} aria-valuemax={100}>
+    <div
+      className="progress"
+      role="progressbar"
+      aria-valuenow={Math.round(value * 100)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+    >
       <span style={{ width: `${Math.max(0, Math.min(1, value)) * 100}%` }} />
     </div>
   );
@@ -193,14 +273,17 @@ export function Progress({ value }: { value: number }) {
 
 export function Loading() {
   return (
-    <VStack align="center" py="x10">
-      <Text color="fg.neutralSubtle">불러오는 중…</Text>
+    <VStack align="center" py="x10" role="status" aria-label="불러오는 중">
+      <ProgressCircle size="40" tone="neutral" />
     </VStack>
   );
 }
 
 /** 화면 아래 고정 버튼 영역 — 알림(스낵바)이 버튼을 가리지 않도록 그 위에 떠요 */
-export function FooterBar(props: { children: ReactNode; style?: CSSProperties }) {
+export function FooterBar(props: {
+  children: ReactNode;
+  style?: CSSProperties;
+}) {
   return (
     <Snackbar.AvoidOverlap>
       <div className="footer-bar" style={props.style}>

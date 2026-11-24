@@ -9,7 +9,9 @@ import {
   IconPerson2Line,
   IconPictureLine,
   IconPlusLine,
+  IconPlusSquareLine,
 } from "@karrotmarket/react-monochrome-icon";
+import { RadioSelectBoxItem, RadioSelectBoxRadiomark, RadioSelectBoxRoot } from "seed-design/ui/select-box";
 import { HStack, Icon, PrefixIcon, Text, VStack } from "@seed-design/react";
 import { ActionButton } from "seed-design/ui/action-button";
 import { Badge } from "seed-design/ui/badge";
@@ -21,25 +23,6 @@ import { Conversation } from "../dm/Bubble";
 import { EmptyState } from "../ui";
 
 export type PostWithMeta = Post & { automationCount: number; usedKeywords: string[] };
-
-function RadioCard(props: { icon: React.ReactNode; title: string; description?: string; selected: boolean; disabled?: boolean; onClick: () => void }) {
-  return (
-    <button type="button" role="radio" aria-checked={props.selected} className="option-card" data-selected={props.selected} disabled={props.disabled} onClick={props.onClick}>
-      <span className="option-card__icon">
-        <Icon svg={props.icon} />
-      </span>
-      <VStack gap="x0_5" as="span" grow>
-        <Text textStyle="t5Bold">{props.title}</Text>
-        {props.description && (
-          <Text textStyle="t3Regular" color="fg.neutralMuted">
-            {props.description}
-          </Text>
-        )}
-      </VStack>
-      <span className="option-card__radio" aria-hidden />
-    </button>
-  );
-}
 
 export function PostGrid(props: { posts: PostWithMeta[]; postId: string | null; onSelect: (id: string) => void; showAutomationCount?: boolean }) {
   return (
@@ -71,7 +54,7 @@ export function PostGrid(props: { posts: PostWithMeta[]; postId: string | null; 
               {(p.automationCount > 0 || p.restricted) && (
                 <HStack gap="x1" pt="x1" wrap>
                   {props.showAutomationCount !== false && p.automationCount > 0 && (
-                    <Badge size="medium" variant="weak" tone="brand">
+                    <Badge size="medium" variant="weak" tone="neutral">
                       자동화 {p.automationCount}
                     </Badge>
                   )}
@@ -103,22 +86,21 @@ export function PostPicker(props: {
 }) {
   return (
     <VStack gap="x4">
-      <VStack gap="x2" role="radiogroup" aria-label="게시물 선택 방법">
-        <RadioCard
-          icon={<IconPictureLine />}
-          title="올린 게시물에서 고르기"
-          selected={!props.nextPost}
-          onClick={() => props.onChange({ postId: props.postId, nextPost: false })}
-        />
-        <RadioCard
-          icon={<IconPlusLine />}
-          title="다음에 올릴 게시물에 적용"
+      <RadioSelectBoxRoot
+        aria-label="게시물 선택 방법"
+        value={props.nextPost ? "next" : "posted"}
+        onValueChange={(v) => props.onChange(v === "next" ? { postId: null, nextPost: true } : { postId: props.postId, nextPost: false })}
+      >
+        <RadioSelectBoxItem value="posted" prefixIcon={<IconPictureLine />} label="올린 게시물에서 고르기" suffix={<RadioSelectBoxRadiomark />} />
+        <RadioSelectBoxItem
+          value="next"
+          prefixIcon={<IconPlusSquareLine />}
+          label="다음에 올릴 게시물에 적용"
           description={props.nextPostDisabled ?? "아직 올리지 않은 다음 게시물 1개에 미리 설정해요"}
-          selected={props.nextPost}
           disabled={!!props.nextPostDisabled}
-          onClick={() => props.onChange({ postId: null, nextPost: true })}
+          suffix={<RadioSelectBoxRadiomark />}
         />
-      </VStack>
+      </RadioSelectBoxRoot>
       {props.nextPost ? (
         <Callout
           tone="informative"
@@ -200,41 +182,53 @@ export function TemplateList(props: {
   onEdit?: (t: Template) => void;
   onDelete?: (t: Template) => void;
 }) {
+  // 템플릿 하나 = SEED RadioSelectBoxItem (상자 전체가 누르는 영역). ⋯ 메뉴는 상자 바깥 옆에 둬요
   const Row = ({ t }: { t: Template }) => {
-    const selected = props.selectedId === t.id;
-    return (
-      <div className="option-card" data-selected={selected} style={{ alignItems: "center", padding: "12px 14px", cursor: "pointer" }} onClick={() => props.onSelect(t)}>
-        <span className="option-card__icon">{t.builtin ? <span style={{ fontSize: 20 }}>{t.emoji}</span> : <Icon svg={<IconBookmarkLine />} />}</span>
-        <button type="button" aria-pressed={selected} style={{ all: "unset", flex: 1, minWidth: 0, cursor: "pointer" }} onClick={(e) => (e.stopPropagation(), props.onSelect(t))}>
-          <HStack gap="x1_5" as="span" wrap>
-            <Text textStyle="t5Bold">{t.name}</Text>
+    const item = (
+      <RadioSelectBoxItem
+        value={t.id}
+        prefixIcon={t.builtin ? undefined : <IconBookmarkLine />}
+        label={
+          <HStack as="span" gap="x1_5" align="center" wrap>
+            {t.builtin && <span aria-hidden>{t.emoji}</span>}
+            {t.name}
             {t.recommended && (
-              <Badge size="medium" variant="solid" tone="brand">
+              <Badge size="medium" variant="weak" tone="neutral">
                 추천
               </Badge>
             )}
           </HStack>
-          <Text as="p" textStyle="t3Regular" color="fg.neutralMuted" maxLines={1}>
-            {t.builtin ? t.description : `버튼 ${t.dm.main.format === "carousel" ? `${t.dm.main.cards.length}장 카드` : `${t.dm.main.buttons.length}개`} · 자동화 ${t.usedCount}개`}
-          </Text>
-        </button>
-        {!t.builtin && (props.onEdit || props.onDelete) && (
-          <span onClick={(e) => e.stopPropagation()}>
-            <MenuRoot>
-              <MenuTrigger asChild>
-                <button type="button" className="icon-btn" aria-label={`${t.name} 더 보기`}>
-                  <Icon svg={<IconDot3VerticalLine />} />
-                </button>
-              </MenuTrigger>
-              <MenuContent>
-                {props.onEdit && <MenuItem label="수정" onClick={() => props.onEdit!(t)} />}
-                {props.onDelete && <MenuItem label="삭제" onClick={() => props.onDelete!(t)} />}
-              </MenuContent>
-            </MenuRoot>
-          </span>
-        )}
-      </div>
+        }
+        description={
+          t.builtin
+            ? t.description
+            : `버튼 ${t.dm.main.format === "carousel" ? `${t.dm.main.cards.length}장 카드` : `${t.dm.main.buttons.length}개`} · 자동화 ${t.usedCount}개`
+        }
+        suffix={<RadioSelectBoxRadiomark />}
+      />
     );
+    if (t.builtin || !(props.onEdit || props.onDelete)) return item;
+    return (
+      <HStack gap="x1" align="center">
+        <div style={{ flex: 1, minWidth: 0 }}>{item}</div>
+        <MenuRoot>
+          <MenuTrigger asChild>
+            <ActionButton layout="iconOnly" variant="ghost" size="small" aria-label={`${t.name} 더 보기`}>
+              <Icon svg={<IconDot3VerticalLine />} />
+            </ActionButton>
+          </MenuTrigger>
+          <MenuContent>
+            {props.onEdit && <MenuItem label="수정" onClick={() => props.onEdit!(t)} />}
+            {props.onDelete && <MenuItem label="삭제" tone="critical" onClick={() => props.onDelete!(t)} />}
+          </MenuContent>
+        </MenuRoot>
+      </HStack>
+    );
+  };
+  const all = [...props.mine, ...props.builtin];
+  const pick = (id: string) => {
+    const t = all.find((x) => x.id === id);
+    if (t) props.onSelect(t);
   };
 
   return (
@@ -243,12 +237,17 @@ export function TemplateList(props: {
         <Text textStyle="t4Bold" color="fg.neutralMuted">
           내 템플릿
         </Text>
-        {props.mine.map((t) => (
-          <Row key={t.id} t={t} />
-        ))}
+        {props.mine.length > 0 && (
+          <RadioSelectBoxRoot aria-label="내 템플릿" value={props.selectedId ?? ""} onValueChange={pick}>
+            {props.mine.map((t) => (
+              <Row key={t.id} t={t} />
+            ))}
+          </RadioSelectBoxRoot>
+        )}
         {props.onAdd && (
           <button type="button" className="dashed-btn" onClick={props.onAdd}>
-            + 템플릿 추가
+            <Icon svg={<IconPlusLine />} size="x4" />
+            템플릿 추가
           </button>
         )}
       </VStack>
@@ -256,9 +255,11 @@ export function TemplateList(props: {
         <Text textStyle="t4Bold" color="fg.neutralMuted">
           기본 템플릿
         </Text>
-        {props.builtin.map((t) => (
-          <Row key={t.id} t={t} />
-        ))}
+        <RadioSelectBoxRoot aria-label="기본 템플릿" value={props.selectedId ?? ""} onValueChange={pick}>
+          {props.builtin.map((t) => (
+            <Row key={t.id} t={t} />
+          ))}
+        </RadioSelectBoxRoot>
       </VStack>
     </VStack>
   );

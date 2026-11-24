@@ -5,6 +5,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { uid } from "../shared/factory";
 import { DAY, HOUR, LIMITS } from "../shared/limits";
 import type { Post, Settings } from "../shared/types";
+import { isPublicHttpsUrl } from "../shared/validation";
 import { IG_SCOPES, config, liveConfigured } from "./config";
 import { Engine } from "./engine/engine";
 import { DEMO_PROFILE, DemoGateway, randomSampleComment, seedDemo } from "./instagram/demo";
@@ -287,6 +288,11 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
     res.json(toView(store, services.updateAutomation(req.params.id, req.body)));
   });
 
+  api.post("/automations/:id/stop-batch", (req, res) => {
+    services.stopBatch(String(req.params.id));
+    res.json(toView(store, services.getAutomation(String(req.params.id))));
+  });
+
   api.delete("/automations/:id", (req, res) => {
     services.deleteAutomation(req.params.id);
     res.json({ ok: true });
@@ -360,6 +366,17 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
 
   /* 추첨 */
   api.get("/draws", (_req, res) => res.json(db().draws));
+  /** 추첨 전에 조건에 맞는 참여자 수 (뽑을 인원 상한) */
+  api.get("/draws/candidates", async (req, res) => {
+    const postId = String(req.query.postId ?? "");
+    const keywords = String(req.query.keywords ?? "")
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean);
+    const trigger = keywords.length ? { type: "keyword" as const, keywords } : { type: "all" as const, keywords: [] };
+    res.json({ count: postId ? (await services.drawCandidates(postId, trigger)).length : 0 });
+  });
+
   api.post("/draws", async (req, res) => res.status(201).json(await services.draw(req.body)));
   api.post("/draws/:id/redraw", async (req, res) => {
     const d = db().draws.find((x) => x.id === req.params.id);
@@ -378,7 +395,11 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
       if (!Number.isInteger(n) || n < 1 || n > 1000) throw new HttpError(400, "시간당 최대 DM 수는 1부터 1000 사이의 정수로 넣어 주세요");
       s.rateLimitPerHour = n;
     }
-    if (typeof body.publicBaseUrl === "string") s.publicBaseUrl = body.publicBaseUrl.trim().replace(/\/$/, "");
+    if (typeof body.publicBaseUrl === "string") {
+      const v = body.publicBaseUrl.trim().replace(/\/$/, "");
+      if (v && !isPublicHttpsUrl(v)) throw new HttpError(400, "공개 주소는 https:// 로 시작하는 주소로 넣어 주세요 (예: https://xxxx.trycloudflare.com)");
+      s.publicBaseUrl = v;
+    }
     store.changed();
     res.json(s);
   });
@@ -399,10 +420,24 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
     res.json({ ...db().demo, inbox: db().demo.inbox.slice(-300), replies: db().demo.replies.slice(-100) });
   });
 
+  /** 시뮬레이터: 댓글 하나가 실제로 어떻게 됐는지 (보냄·실패·예약 대기·한도 대기) */
+  const commentOutcome = (commentId: string) => {
+    const d = db()
+      .deliveries.filter((x) => x.commentId === commentId && x.kind !== "reply")
+      .at(-1);
+    if (!d) return {};
+    const q = db().queue.find((x) => x.deliveryId === d.id);
+    if (d.status === "sent") return { outcome: "sent" as const, kind: d.kind };
+    if (d.status === "failed") return { outcome: "failed" as const, error: d.error };
+    if (q && q.notBefore > now()) return { outcome: d.status === "retrying" ? ("retrying" as const) : ("held" as const), at: q.notBefore, error: d.error };
+    return { outcome: "queued" as const };
+  };
+
   api.post("/demo/comment", demoOnly, async (req, res) => {
     const fan = fanOf(req.body.fanId);
+    const commentId = uid("c");
     const r = await engine.handleComment({
-      id: uid("c"),
+      id: commentId,
       postId: req.body.postId,
       userId: req.body.asOwner ? db().account!.igUserId! : fan.id,
       username: req.body.asOwner ? db().account!.username! : fan.username,
@@ -410,7 +445,7 @@ export function createApp(store: Store, opts: { now?: () => number } = {}) {
       createdAt: now(),
     });
     await engine.tick();
-    res.json(r);
+    res.json({ ...r, ...(r.automationId && !r.skipped ? commentOutcome(commentId) : {}) });
   });
 
   api.post("/demo/comments/bulk", demoOnly, async (req, res) => {

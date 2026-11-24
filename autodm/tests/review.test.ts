@@ -502,3 +502,107 @@ describe("UI 검수에서 나온 서버 규칙", () => {
   });
 });
 
+describe("5차 검수: 워크플로", () => {
+  beforeEach(() => {
+    clock = new Date("2026-11-23T10:00:00+09:00").getTime();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  async function serveDemo() {
+    const store = new Store(null);
+    const ctx = createApp(store);
+    store.db.account = { connected: true, mode: "demo", ...DEMO_PROFILE, connectedAt: Date.now() };
+    seedDemo(store);
+    const server = ctx.app.listen(0, "127.0.0.1");
+    await new Promise((r) => server.once("listening", r));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const call = async (path: string, body?: unknown, method?: string) => {
+      const r = await fetch(`${base}/api${path}`, {
+        method: method ?? (body === undefined ? "GET" : "POST"),
+        headers: { "content-type": "application/json", "x-autodm": "1" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      return { status: r.status, json: await r.json() };
+    };
+    return { store, server, call, ...ctx };
+  }
+
+  it("시뮬레이터는 실제 결과를 알려 준다 (보냄·실패·예약 대기·꺼짐)", async () => {
+    const { store, server, call, services } = await serveDemo();
+    try {
+      const a = services.createAutomation(input({ trigger: { type: "keyword", keywords: ["링크"] } }));
+      expect((await call("/demo/comment", { postId: "post_1", fanId: "fan_2", text: "링크요" })).json.outcome).toBe("sent");
+      const restricted = store.db.demo.fans.find((f) => f.restricted)!;
+      const failed = (await call("/demo/comment", { postId: "post_1", fanId: restricted.id, text: "링크요" })).json;
+      expect(failed.outcome).toBe("failed");
+      expect(failed.error).toMatch(/받을 수 없는/);
+      services.createAutomation(
+        input({ postId: "post_4", sendMode: "scheduled", schedule: { at: new Date(Date.now() + 2 * HOUR).setMinutes(0, 0, 0), continueAfter: true } }),
+      );
+      expect((await call("/demo/comment", { postId: "post_4", fanId: "fan_3", text: "링크" })).json.outcome).toBe("held");
+      services.updateAutomation(a.id, { enabled: false });
+      expect((await call("/demo/comment", { postId: "post_1", fanId: "fan_5", text: "링크" })).json.skipped).toBe("off");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("받는 사람 쪽 사정으로 실패한 DM은 자동화 경고로 띄우지 않는다", async () => {
+    const { store, services, engine } = setup();
+    const a = services.createAutomation(input());
+    const restricted = store.db.demo.fans.find((f) => f.restricted)!;
+    await engine.handleComment(comment("post_1", restricted.id, "링크"));
+    await engine.tick();
+    const { automationHealth } = await import("../server/views");
+    expect(store.db.deliveries.find((d) => d.userId === restricted.id)?.status).toBe("failed");
+    expect(automationHealth(store, a, clock).state).toBe("ok");
+  });
+
+  it("일괄 발송을 중간에 멈추면 남은 댓글은 보내지 않고 꺼진 즉시 발송으로 남는다", async () => {
+    const { store, services, engine } = setup();
+    store.db.settings.rateLimitPerHour = 1;
+    store.db.comments = ["fan_2", "fan_3", "fan_4"].map((f) => comment("post_2", f, "공구 참여", clock - HOUR));
+    const a = services.createAutomation(input({ postId: "post_2", trigger: { type: "keyword", keywords: ["공구"] }, sendMode: "batch" }));
+    await flush();
+    await engine.tick();
+    expect(store.db.demo.inbox).toHaveLength(1);
+    services.stopBatch(a.id);
+    expect(a.sendMode).toBe("immediate");
+    expect(a.enabled).toBe(false);
+    expect(a.batch?.stopped).toBe(true);
+    clock += 2 * HOUR;
+    await engine.tick();
+    expect(store.db.demo.inbox).toHaveLength(1);
+    expect(() => services.deleteAutomation(a.id)).not.toThrow();
+  });
+
+  it("이미 보낸 예약 발송(이후 새 댓글에도)은 즉시 발송처럼 취급해 같은 게시물에 즉시 발송을 더할 수 있다", () => {
+    const { services } = setup();
+    const s = services.createAutomation(input({ postId: "post_4", sendMode: "scheduled", schedule: { at: clock + HOUR, continueAfter: true } }));
+    expect(() => services.createAutomation(input({ postId: "post_4", trigger: { type: "keyword", keywords: ["가격"] } }))).toThrow(/예약 발송 자동화/);
+    s.schedule!.firedAt = clock;
+    expect(() => services.createAutomation(input({ postId: "post_4", trigger: { type: "keyword", keywords: ["가격"] } }))).not.toThrow();
+  });
+
+  it("공개 주소는 https 주소만 저장하고, 추첨 인원 상한은 조건에 맞는 참여자 수", async () => {
+    const { store, server, call } = await serveDemo();
+    try {
+      expect((await call("/settings", { publicBaseUrl: "my tunnel" }, "PATCH")).status).toBe(400);
+      expect((await call("/settings", { publicBaseUrl: "http://abc.trycloudflare.com" }, "PATCH")).status).toBe(400);
+      expect((await call("/settings", { publicBaseUrl: "https://abc.trycloudflare.com/" }, "PATCH")).status).toBe(200);
+      expect(store.db.settings.publicBaseUrl).toBe("https://abc.trycloudflare.com");
+      expect((await call("/settings", { publicBaseUrl: "" }, "PATCH")).status).toBe(200);
+      store.db.comments = [
+        comment("post_5", "fan_2", "응모"),
+        comment("post_5", "fan_2", "응모 또"),
+        comment("post_5", "fan_3", "응모!"),
+        comment("post_5", "fan_4", "구경"),
+      ];
+      expect((await call("/draws/candidates?postId=post_5&keywords=응모")).json.count).toBe(2);
+      expect((await call("/draws/candidates?postId=post_5&keywords=")).json.count).toBe(3);
+    } finally {
+      server.close();
+    }
+  });
+});
+

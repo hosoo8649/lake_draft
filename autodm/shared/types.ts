@@ -136,6 +136,8 @@ export interface BatchInfo {
   total: number;
   /** 지난 댓글을 불러오는 중 (아직 대기열에 넣기 전) */
   fetching?: boolean;
+  /** 보내는 도중에 멈춤 */
+  stopped?: boolean;
 }
 
 export interface Automation {
@@ -220,6 +222,8 @@ export interface DeliveryLog {
   messageId?: string;
   /** 보낼 때의 버튼 링크 (자동화를 지우거나 고쳐도 클릭이 동작하도록) */
   links?: Record<string, string>;
+  /** 받는 사람 쪽 사정으로 실패 (DM 차단·탈퇴 등) — 자동화 경고에는 넣지 않아요 */
+  recipientIssue?: boolean;
 }
 
 export interface ClickLog {

@@ -1,5 +1,14 @@
-import { HStack, Text, VStack } from "@seed-design/react";
-import { useState } from "react";
+import {
+  IconArrowClockwiseCircularLine,
+  IconChevronRightLine,
+  IconDot3HorizontalChatbubbleLeftLine,
+  IconMagnifyingglassLine,
+} from "@karrotmarket/react-monochrome-icon";
+import { HStack, Icon, PrefixIcon, Text, VStack } from "@seed-design/react";
+import { Fragment, useEffect, useState } from "react";
+import { List, ListButtonItem, ListDivider } from "seed-design/ui/list";
+import { QuantityPicker } from "seed-design/ui/quantity-picker";
+import { RadioSelectBoxItem, RadioSelectBoxRadiomark, RadioSelectBoxRoot } from "seed-design/ui/select-box";
 import { ActionButton } from "seed-design/ui/action-button";
 import { Badge } from "seed-design/ui/badge";
 import { PostGrid, type PostWithMeta } from "../components/automation/Pickers";
@@ -25,6 +34,16 @@ export function DrawsPage() {
   const [postId, setPostId] = useState<string | null>(null);
   const [trigger, setTrigger] = useState<Trigger>({ type: "all", keywords: [] });
   const [count, setCount] = useState(1);
+  // 조건에 맞는 참여자 수 (한 사람은 한 번만) — 뽑을 인원은 이 수까지
+  const kwParam = trigger.type === "keyword" ? trigger.keywords.join(",") : "";
+  const candidates = useApi<{ count: number }>(
+    postId && (trigger.type === "all" || kwParam) ? `/draws/candidates?postId=${postId}&keywords=${encodeURIComponent(kwParam)}` : null,
+    { live: false },
+  );
+  const maxWinners = candidates.data?.count ?? 0;
+  useEffect(() => {
+    if (candidates.data && count > Math.max(1, candidates.data.count)) setCount(Math.max(1, candidates.data.count));
+  }, [candidates.data]);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
   const onError = useErrorToast();
@@ -67,7 +86,18 @@ export function DrawsPage() {
     const text = announcement(d, postTitle(p));
     return (
       <div className="page page--narrow">
-        <PageHeader back onBack={() => setMode({ kind: "list" })} title="추첨 결과" description={`${fmtDateTime(d.redrawnAt ?? d.createdAt)} · ${triggerSummary(d.trigger)}`} />
+        <PageHeader
+          back
+          onBack={() => setMode({ kind: "list" })}
+          title="추첨 결과"
+          description={`${fmtDateTime(d.redrawnAt ?? d.createdAt)} · ${triggerSummary(d.trigger)}`}
+          actions={
+            <ActionButton variant="ghost" size="small" onClick={() => redraw(d)}>
+              <PrefixIcon svg={<IconArrowClockwiseCircularLine />} />
+              다시 뽑기
+            </ActionButton>
+          }
+        />
         <VStack gap="x4">
           <Section>
             <HStack gap="x3" align="center" pb="x4">
@@ -81,7 +111,7 @@ export function DrawsPage() {
             </HStack>
             {d.winners.map((w, i) => (
               <div key={w.userId} className="winner">
-                <Badge size="large" variant="solid" tone="brand">
+                <Badge size="large" variant="weak" tone="neutral">
                   {i + 1}
                 </Badge>
                 <Avatar name={w.username} />
@@ -108,9 +138,6 @@ export function DrawsPage() {
                 }}
               >
                 발표 글 공유
-              </ActionButton>
-              <ActionButton variant="neutralWeak" onClick={() => redraw(d)}>
-                다시 뽑기
               </ActionButton>
             </HStack>
           </Section>
@@ -171,44 +198,52 @@ export function DrawsPage() {
           <VStack gap="x4">
             <Section title="조건">
               <VStack gap="x3">
-                {(["all", "keyword"] as const).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    className="option-card"
-                    data-selected={trigger.type === t}
-                    onClick={() => setTrigger({ type: t, keywords: t === "all" ? [] : trigger.keywords })}
-                  >
-                    <span className="option-card__icon">{t === "all" ? "💬" : "🔑"}</span>
-                    <VStack gap="x0_5" as="span">
-                      <Text textStyle="t5Bold">{t === "all" ? "모든 댓글" : "키워드가 있을 때"}</Text>
-                      <Text textStyle="t3Regular" color="fg.neutralMuted">
-                        {t === "all" ? "댓글을 단 모든 사람 중에서 뽑아요" : "특정 키워드를 남긴 사람 중에서만 뽑아요"}
-                      </Text>
-                    </VStack>
-                  </button>
-                ))}
+                <RadioSelectBoxRoot
+                  aria-label="추첨 조건"
+                  value={trigger.type}
+                  onValueChange={(v) => {
+                    const t = v as "all" | "keyword";
+                    setTrigger({ type: t, keywords: t === "all" ? [] : trigger.keywords });
+                  }}
+                >
+                  <RadioSelectBoxItem
+                    value="all"
+                    prefixIcon={<IconDot3HorizontalChatbubbleLeftLine />}
+                    label="모든 댓글"
+                    description="댓글을 단 모든 사람 중에서 뽑아요"
+                    suffix={<RadioSelectBoxRadiomark />}
+                  />
+                  <RadioSelectBoxItem
+                    value="keyword"
+                    prefixIcon={<IconMagnifyingglassLine />}
+                    label="키워드 댓글"
+                    description="특정 키워드를 남긴 사람 중에서만 뽑아요"
+                    suffix={<RadioSelectBoxRadiomark />}
+                  />
+                </RadioSelectBoxRoot>
                 {trigger.type === "keyword" && (
                   <KeywordInput keywords={trigger.keywords} onChange={(k) => setTrigger({ type: "keyword", keywords: k })} usedOnPost={[]} ideas={["응모", "참여", "이벤트"]} hint="‘응모합니다!’처럼 키워드가 문장 안에 있어도 후보에 들어가요" />
                 )}
               </VStack>
             </Section>
-            <Section title="뽑을 인원" description={`댓글 수(${selected?.commentsCount ?? 0}개)까지 정할 수 있어요. 한 사람이 여러 번 댓글을 달아도 한 번만 뽑혀요.`}>
+            <Section
+              title="뽑을 인원"
+              description={
+                candidates.data
+                  ? `조건에 맞는 참여자 ${candidates.data.count}명까지 정할 수 있어요. 한 사람이 여러 번 댓글을 달아도 한 번만 뽑혀요.`
+                  : "한 사람이 여러 번 댓글을 달아도 한 번만 뽑혀요."
+              }
+            >
               <HStack gap="x3" align="center">
-                <ActionButton variant="neutralWeak" disabled={count <= 1} onClick={() => setCount(count - 1)} aria-label="한 명 줄이기">
-                  −
-                </ActionButton>
-                <Text textStyle="t9Bold" style={{ minWidth: 48, textAlign: "center" }}>
-                  {count}
-                </Text>
-                <ActionButton
-                  variant="neutralWeak"
-                  disabled={count >= (selected?.commentsCount ?? 1)}
-                  onClick={() => setCount(count + 1)}
-                  aria-label="한 명 늘리기"
-                >
-                  +
-                </ActionButton>
+                <QuantityPicker
+                  aria-label="뽑을 인원"
+                  min={1}
+                  max={Math.max(1, maxWinners)}
+                  value={count}
+                  onValueChange={(v) => setCount(v)}
+                  decrementAriaLabel="한 명 줄이기"
+                  incrementAriaLabel="한 명 늘리기"
+                />
                 <Text textStyle="t4Regular" color="fg.neutralMuted">
                   명
                 </Text>
@@ -219,7 +254,7 @@ export function DrawsPage() {
                 variant="brandSolid"
                 size="large"
                 loading={busy}
-                disabled={trigger.type === "keyword" && trigger.keywords.length === 0}
+                disabled={(trigger.type === "keyword" && trigger.keywords.length === 0) || (!!candidates.data && maxWinners === 0)}
                 onClick={run}
               >
                 {count}명 추첨하기
@@ -254,22 +289,23 @@ export function DrawsPage() {
         {draws.data.length === 0 ? (
           <EmptyState emoji="🎁" title="아직 추첨 기록이 없어요" description="이벤트 게시물의 댓글에서 당첨자를 뽑아 보세요." />
         ) : (
-          <VStack gap="x2">
-            {draws.data.map((d) => {
+          <List>
+            {draws.data.map((d, i) => {
               const p = postOf(d.postId);
               return (
-                <button key={d.id} type="button" className="option-card" onClick={() => setMode({ kind: "result", id: d.id })}>
-                  <PostThumb post={p} size="xs" />
-                  <VStack gap="x0_5" grow as="span">
-                    <Text textStyle="t4Bold">{postTitle(p)}</Text>
-                    <Text textStyle="t3Regular" color="fg.neutralMuted">
-                      {fmtDateTime(d.redrawnAt ?? d.createdAt)} · {triggerSummary(d.trigger)} · {d.winners.length}명 당첨
-                    </Text>
-                  </VStack>
-                </button>
+                <Fragment key={d.id}>
+                  {i > 0 && <ListDivider />}
+                  <ListButtonItem
+                    prefix={<PostThumb post={p} size="xs" />}
+                    title={postTitle(p)}
+                    detail={`${fmtDateTime(d.redrawnAt ?? d.createdAt)} · ${triggerSummary(d.trigger)} · ${d.winners.length}명 당첨`}
+                    suffix={<Icon svg={<IconChevronRightLine />} color="fg.neutralSubtle" />}
+                    onClick={() => setMode({ kind: "result", id: d.id })}
+                  />
+                </Fragment>
               );
             })}
-          </VStack>
+          </List>
         )}
       </Section>
     </div>
